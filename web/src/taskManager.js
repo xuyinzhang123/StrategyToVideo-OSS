@@ -202,6 +202,10 @@ function createTask(normalized) {
   const status = {
     taskId,
     strategy: normalized.strategy,
+    // 工作区摘要要显示本金与区间，只写进 request.json 会让界面读到 undefined
+    principal: normalized.principal,
+    startDate: normalized.startDate,
+    endDate: normalized.endDate,
     status: 'queued', // 已创建但未执行
     mode: 'plan-only', // 阶段 2 明确标记：仅计划，未接入引擎
     createdAt: now,
