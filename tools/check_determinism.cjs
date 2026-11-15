@@ -6,7 +6,7 @@
 //
 // 用法：
 //   node tools/check_determinism.cjs
-//   node tools/check_determinism.cjs --file my.csv --class cross_section
+//   node tools/check_determinism.cjs --file my.csv --class cross_section --map '{"label":"区域","value":"毛利"}'
 //
 // 退出码：0 = 两次一致；1 = 不一致或执行失败。
 
@@ -21,10 +21,11 @@ const { validateImport } = require(path.join(ROOT, 'web', 'src', 'import', 'vali
 const genericChart = require(path.join(ROOT, 'web', 'src', 'adapters', 'genericChart.cjs'));
 
 function parseArgs(argv) {
-  const out = { file: path.join(ROOT, 'docs', 'samples', 'timeseries_single.csv'), cls: 'timeseries' };
+  const out = { file: path.join(ROOT, 'docs', 'samples', 'timeseries_single.csv'), cls: 'timeseries', map: undefined };
   for (let i = 0; i < argv.length; i += 1) {
     if (argv[i] === '--file') out.file = path.resolve(argv[i + 1]);
     if (argv[i] === '--class') out.cls = argv[i + 1];
+    if (argv[i] === '--map') out.map = JSON.parse(argv[i + 1]);
   }
   return out;
 }
@@ -39,7 +40,7 @@ function runCommandSync(cmd, args) {
 }
 
 // 一次完整出片：返回 { video, videoSha, traceSha, bytes, frames }
-async function runOnce({ csvText, fileName, cls, title, unit, tag, workRoot }) {
+async function runOnce({ csvText, fileName, cls, title, unit, mapping, tag, workRoot }) {
   const taskDir = path.join(workRoot, tag);
   const outputDir = path.join(workRoot, tag + '_out');
   fs.mkdirSync(taskDir, { recursive: true });
@@ -48,7 +49,7 @@ async function runOnce({ csvText, fileName, cls, title, unit, tag, workRoot }) {
   // 不固定 importedAt：网页路径每次创建任务都会取当前时间。
   // 正因如此，这个测试才能证明「时间戳没有渗进画面」——如果渗进去了，两次会不一致。
   const v = validateImport({
-    dataClass: cls, csvText, fileName, title, unit,
+    dataClass: cls, csvText, fileName, title, unit, mapping,
   });
   if (!v.ok) throw new Error(`校验未通过（${v.code}）：${v.message}`);
 
@@ -89,7 +90,7 @@ async function runOnce({ csvText, fileName, cls, title, unit, tag, workRoot }) {
 }
 
 async function main() {
-  const { file, cls } = parseArgs(process.argv.slice(2));
+  const { file, cls, map } = parseArgs(process.argv.slice(2));
   if (!fs.existsSync(file)) {
     console.error(`找不到文件：${file}`);
     process.exit(1);
@@ -107,10 +108,10 @@ async function main() {
   let b;
   try {
     console.log('[determinism] 第 1 次出片…');
-    a = await runOnce({ csvText, fileName, cls, title, unit, tag: 'runA', workRoot });
+    a = await runOnce({ csvText, fileName, cls, title, unit, mapping: map, tag: 'runA', workRoot });
     console.log(`  video sha256=${a.videoSha}  ${a.bytes} 字节  ${a.trace.verification.verified}/${a.trace.verification.points} 点已溯源`);
     console.log('[determinism] 第 2 次出片…');
-    b = await runOnce({ csvText, fileName, cls, title, unit, tag: 'runB', workRoot });
+    b = await runOnce({ csvText, fileName, cls, title, unit, mapping: map, tag: 'runB', workRoot });
     console.log(`  video sha256=${b.videoSha}  ${b.bytes} 字节  ${b.trace.verification.verified}/${b.trace.verification.points} 点已溯源`);
   } catch (e) {
     console.error(`[determinism] 失败：${e && e.message ? e.message : e}`);
