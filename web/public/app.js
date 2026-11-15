@@ -124,6 +124,16 @@
     return d.firstChild;
   }
 
+  // 一次插入多个并列元素。el() 只返回第一个子节点，把多个 .field 拼在一段 HTML 里
+  // 会导致第二个之后的字段被静默丢弃（曾使「结束日期」「单位」等控件整块消失）。
+  function els(html) {
+    var d = document.createElement('div');
+    d.innerHTML = html.trim();
+    var frag = document.createDocumentFragment();
+    while (d.firstChild) frag.appendChild(d.firstChild);
+    return frag;
+  }
+
   function buildForm(strategy) {
     var m = META[strategy];
     if (m.userCsv) { buildCsvForm(strategy); return; }
@@ -149,7 +159,7 @@
         : '有限正数，范围 1000 ~ 100000000') + '</span></div>'
     ));
 
-    paramsForm.appendChild(el(
+    paramsForm.appendChild(els(
       '<div class="field"><label>开始日期</label>' +
       '<input type="date" id="f-start" value="' + m.start + '"' + (locked ? ' disabled' : '') + ' /></div>' +
       '<div class="field"><label>结束日期</label>' +
@@ -166,7 +176,7 @@
     }
 
     if (locked && strategy === 'macd') {
-      paramsForm.appendChild(el(
+      paramsForm.appendChild(els(
         '<div class="field"><label>MACD 参数</label>' +
         '<input type="text" value="12 / 26 / 9 · 次日开盘成交（已锁定）" disabled /></div>' +
         '<div class="field"><label>视频版本</label>' +
@@ -206,7 +216,7 @@
       '<input type="file" id="f-csv" accept=".csv,text/csv,text/plain" />' +
       '<span class="field-hint">首行必须是表头。GBK 编码请先另存为 UTF-8；文件只在本机读取，不上传云端。</span></div>'
     ));
-    paramsForm.appendChild(el(
+    paramsForm.appendChild(els(
       '<div class="field"><label>视频标题</label>' +
       '<input type="text" id="f-title" maxlength="80" placeholder="例如：月度产能利用率" /></div>' +
       '<div class="field"><label>单位（可空）</label>' +
