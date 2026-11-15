@@ -17,7 +17,7 @@
 | 5 | `stock_dividends.csv` | C · 分红（配套 4） | 2 事件 | ✅ 通过 | — | — |
 | 6 | `warn_stock_calendar_gap.csv` | C · 股票日线 | 248 行 | ⚠️ 通过 + 警告 | `W_CALENDAR_GAP_LARGE` | `2024-03-29 → 2024-04-17` 缺 12 个工作日 |
 | 7 | `warn_stock_descending.csv` | C · 股票日线 | 260 行 | ⚠️ 通过 + 警告 | `W_DESC_ORDER`；若未配分红文件另加 `W_NO_DIVIDENDS` | 首行 `2024-12-30`、末行 `2024-01-02` |
-| 8 | `warn_timeseries_ragged.csv` | A · 通用时间序列 | 33 行（3 序列） | ⚠️ 通过 + 警告 | `W_RAGGED_SERIES` | B 缺 2 个月、C 缺 1 个月 |
+| 8 | `warn_timeseries_ragged.csv` | A · 通用时间序列 | 33 行（3 序列） | ⚠️ 通过 + 警告 | `W_RAGGED_SERIES` | A 缺 2025-04、2025-05；C 缺 2025-08（点数 A 10 / B 12 / C 11） |
 | 9 | `invalid_stock_missing_column.csv` | C · 股票日线 | 10 行 | ❌ 拒绝 | `E_MISSING_COLUMN` | 表头行，缺 `close` |
 | 10 | `invalid_stock_duplicate_date.csv` | C · 股票日线 | 31 行 | ❌ 拒绝 | `E_DUP_DATE` | 第 12 行 `2024-01-15`，与第 11 行重复 |
 | 11 | `invalid_stock_bad_number.csv` | C · 股票日线 | 12 行 | ❌ 拒绝 | `E_THOUSANDS_SEPARATOR` | 第 7 行 `close` = `"1,234.50"`（引号内严格千分位） |
@@ -130,8 +130,10 @@ label,value,group,value2
 
 ### 8) `warn_timeseries_ragged.csv` — 序列参差
 
-- 3 条序列，点数 10 / 12 / 11（B 缺 2025-04、2025-05；C 缺 2025-08）。
+- 3 条序列，点数 **A 10 / B 12 / C 11**（A 缺 2025-04、2025-05；C 缺 2025-08）。
 - → `W_RAGGED_SERIES`；渲染时缺处断线，**不插值、不前向填充**。
+
+> 这张表原先写成「B 缺 2 个月」，与实际文件不符；`npm run check:samples` 实跑后已按文件更正（A 才是缺点的那条）。
 
 **预期视频**：三条折线各有断点，画面标注「各序列区间不一致」。
 

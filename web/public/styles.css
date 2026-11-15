@@ -234,3 +234,50 @@ body {
   font-size: 12px;
   padding: 18px;
 }
+
+/* ---- V0.2 用户 CSV 通道 ---- */
+.field select {
+  padding: 9px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-size: 14px;
+  color: var(--ink);
+  background: #fff;
+}
+.field select:focus { outline: none; border-color: var(--brand); box-shadow: 0 0 0 2px var(--brand-soft); }
+.field-wide { grid-column: 1 / -1; }
+.field input[type="file"] { padding: 8px 10px; background: #fff; }
+.mapping-grid {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 10px 16px;
+  padding: 12px;
+  border: 1px dashed var(--line);
+  border-radius: 10px;
+}
+.mapping-title { grid-column: 1 / -1; margin: 0; font-size: 13px; font-weight: 600; }
+.csv-preview {
+  grid-column: 1 / -1;
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted);
+  font-family: Consolas, "Courier New", monospace;
+  white-space: pre-wrap;
+  max-height: 96px;
+  overflow: auto;
+  background: #f8f9fb;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+.warn-box {
+  grid-column: 1 / -1;
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid #f3ddb0;
+  background: #fffaf0;
+  color: #8a5a00;
+  border-radius: 8px;
+  font-size: 13px;
+}

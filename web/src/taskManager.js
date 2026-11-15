@@ -143,6 +143,44 @@ function createTask(normalized) {
   fs.mkdirSync(dir, { recursive: true });
 
   const now = new Date().toISOString();
+
+  // 用户 CSV（A/B 类）：没有本金 / 区间 / 视频规格参数，一切由数据决定。
+  // 归一化模型随之落盘为 import.json —— 执行阶段只读它，不再碰 CSV 原文，
+  // 这样「校验失败」与「执行失败」不会互相掩盖，产物也可回溯（Issue #1 要求）。
+  if (normalized.importModel) {
+    const request = {
+      taskId,
+      strategy: normalized.strategy,
+      dataClass: normalized.dataClass,
+      title: normalized.title,
+      unit: normalized.unit,
+      asOf: normalized.asOf,
+      sourceNote: normalized.sourceNote,
+      fileName: normalized.fileName,
+      mapping: normalized.mapping,
+      warnings: normalized.warnings,
+      mode: 'plan-only',
+    };
+    const status = {
+      taskId,
+      strategy: normalized.strategy,
+      dataClass: normalized.dataClass,
+      title: normalized.title,
+      status: 'queued',
+      mode: 'plan-only',
+      createdAt: now,
+      updatedAt: now,
+      warnings: normalized.warnings,
+      note: '任务已创建（计划态），请点击「确认并生成视频」显式执行。',
+      result: null,
+      error: null,
+    };
+    atomicWriteJson(path.join(dir, 'request.json'), request);
+    atomicWriteJson(path.join(dir, 'import.json'), normalized.importModel);
+    atomicWriteJson(path.join(dir, 'status.json'), status);
+    return { taskId, status };
+  }
+
   const request = {
     taskId,
     strategy: normalized.strategy,

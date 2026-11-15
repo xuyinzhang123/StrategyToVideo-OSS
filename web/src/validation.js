@@ -24,7 +24,17 @@
 //   dividend_etf : output/div_etf_ep1_v2_20261110/02_backtest/daily.csv 实测区间 2020-02-26→2026-11-06
 //   macd         : agent/unified/registry.cjs stock_overnight sealed {start:2016-01-04,end:2026-11-06}; 代码 601398
 
-const STRATEGY_IDS = ['macd'];
+const { validateImport } = require('./import/validate');
+
+const STRATEGY_IDS = ['macd', 'timeseries', 'cross_section'];
+
+// 用户 CSV 通道（V0.2 预览）：A/B 两类已开放；stock_ohlc 受 DATA_SPEC §7.1 门禁约束，未注册。
+const USER_CLASSES = ['timeseries', 'cross_section'];
+
+// 用户 CSV 请求允许的字段（与引擎侧 createTask 写入 request.json 的字段一一对应）
+const USER_ALLOWED_FIELDS = new Set([
+  'strategy', 'title', 'unit', 'asOf', 'sourceNote', 'mapping', 'csvText', 'fileName', 'sortByValue',
+]);
 
 const WINDOWS = {
   ratio_band: {
@@ -214,6 +224,53 @@ function validatePrincipal(p) {
   return { ok: true, value: p };
 }
 
+// 用户 CSV 通道（V0.2 预览）：A/B 两类。
+// 与 macd 的差别：没有本金、没有区间、没有视频规格参数——一切由 CSV 内容决定。
+// 契约细节全部在 web/src/import/validate.js，这里只做「请求字段白名单 + 归一化装配」。
+function validateUserCsvRequest(body, dataClass) {
+  for (const k of Object.keys(body)) {
+    if (!USER_ALLOWED_FIELDS.has(k)) {
+      return { ok: false, code: 'E_UNKNOWN_FIELD', message: `用户 CSV 通道不支持的字段：${k}` };
+    }
+  }
+  const fileName = body.fileName;
+  if (typeof fileName === 'string' && /[\\/]|\.\./.test(fileName)) {
+    return { ok: false, code: 'E_FORBIDDEN_FIELD', message: 'fileName 只能是文件名本身，不能包含路径' };
+  }
+
+  const r = validateImport({
+    dataClass,
+    csvText: body.csvText,
+    mapping: body.mapping,
+    title: body.title,
+    unit: body.unit,
+    asOf: body.asOf,
+    sourceNote: body.sourceNote,
+    fileName,
+    sortByValue: body.sortByValue,
+  });
+  if (!r.ok) {
+    return { ok: false, code: r.code, message: r.message, line: r.line };
+  }
+
+  return {
+    ok: true,
+    value: {
+      strategy: dataClass,
+      dataClass,
+      title: r.model.meta.title,
+      unit: r.model.meta.unit,
+      asOf: r.model.meta.asOf || '',
+      sourceNote: r.model.meta.sourceNote || '',
+      fileName: r.model.meta.fileName || '',
+      mapping: r.model.meta.mapping || {},
+      warnings: (r.warnings || []).map((w) => ({ code: w.code, message: w.message })),
+      importModel: r.model,
+      mode: 'plan-only',
+    },
+  };
+}
+
 // 主入口：返回 { ok:true, value:{...normalized} } 或 { ok:false, code, message }
 function validateTaskRequest(body) {
   if (!isPlainObject(body)) {
@@ -235,18 +292,36 @@ function validateTaskRequest(body) {
   }
 
   // 3) 危险路径字符串（纵深防御）
-  if (anyStringLooksLikePath(body)) {
+  //    csvText 是 CSV 原文，可能合法包含 / \ .. 等字符（例如列值里带路径），
+  //    不参与路径扫描——否则一份正常 CSV 会被误判成路径注入。
+  const pathScanTarget = Object.assign({}, body);
+  delete pathScanTarget.csvText;
+  if (anyStringLooksLikePath(pathScanTarget)) {
     return { ok: false, code: 'E_FORBIDDEN_FIELD', message: '请求中包含非法路径字符' };
   }
 
   // 4) 策略标识
   const strategy = body.strategy;
+
+  // 4.0) 受门禁约束的数据类别：给出明确原因，而不是笼统的「不支持的策略」。
+  //      否则用户会以为是自己拼错，而不是「这条通道还不能保证算对」。
+  if (strategy === 'stock_ohlc') {
+    const gated = validateImport({ dataClass: 'stock_ohlc' });
+    return { ok: false, code: gated.code, message: gated.message };
+  }
+
   if (typeof strategy !== 'string' || !STRATEGY_IDS.includes(strategy)) {
     return {
       ok: false,
       code: 'E_STRATEGY_UNSUPPORTED',
       message: `不支持的策略：${String(strategy)}（可选：${STRATEGY_IDS.join(' / ')}）`,
     };
+  }
+
+  // 4.1) 用户 CSV 通道：字段白名单与契约校验都在 validateUserCsvRequest 内完成
+  //      （它们的必填项与 macd 完全不同，不能走下面的通用分支）
+  if (USER_CLASSES.includes(strategy)) {
+    return validateUserCsvRequest(body, strategy);
   }
 
   // 5) 未知字段（按策略白名单严格比对）
@@ -353,6 +428,7 @@ function validateTaskRequest(body) {
 
 module.exports = {
   STRATEGY_IDS,
+  USER_CLASSES,
   WINDOWS,
   VIDEO_RESOLUTIONS,
   VIDEO_FPS,
@@ -362,5 +438,6 @@ module.exports = {
   DIVIDEND_ETF_LOCKED,
   FORBIDDEN_FIELDS,
   parseDateStrict,
+  validateUserCsvRequest,
   validateTaskRequest,
 };

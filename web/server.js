@@ -12,11 +12,14 @@ const {
 } = require('./src/taskManager');
 const engineBridge = require('./src/engineBridge');
 
-// 阶段 2 任务接口限制
-const MAX_BODY_BYTES = 256 * 1024; // 256KB 请求体上限
+// 请求体上限。
+// V0.2 起用户 CSV 随 JSON 一起提交（浏览器 FileReader → csvText），需留出转义余量：
+// 文件级上限仍是 DATA_SPEC §1.1 的 2 MiB，由校验器判定；这里是传输层上限。
+const MAX_BODY_BYTES = 5 * 1024 * 1024; // 5 MiB
 
-// Open Source V0.1：当前仅开放 MACD 演示策略（其余适配器未注册到网页入口）
-const EXECUTABLE_STRATEGIES = ['macd'];
+// 可执行策略：macd（V0.1 演示）+ timeseries / cross_section（V0.2 用户 CSV 的 A/B 两类）。
+// stock_ohlc 未列入——它受 DATA_SPEC §7.1 股票通道门禁约束。
+const EXECUTABLE_STRATEGIES = ['macd', 'timeseries', 'cross_section'];
 
 // 修订点 1：仅回环地址，绝不监听 0.0.0.0
 const HOST = '127.0.0.1';
@@ -99,8 +102,8 @@ function getHealthInfo() {
         concurrency: 1,
       },
       executableStrategies: EXECUTABLE_STRATEGIES.slice(),
-      strategyModes: { macd: 'executable' },
-      strategies: ['macd'],
+      strategyModes: { macd: 'executable', timeseries: 'executable', cross_section: 'executable' },
+      strategies: ['macd', 'timeseries', 'cross_section'],
     },
     checks: { node, python: py, ffmpeg, depsDir, projectRoot },
   };
@@ -264,7 +267,10 @@ function handleCreateTask(req, res) {
     const result = validateTaskRequest(body);
     if (!result.ok) {
       // 校验失败：4xx + 错误码（不创建任何任务目录）
-      return sendJson(res, 400, { ok: false, code: result.code, message: result.message });
+      return sendJson(res, 400, {
+        ok: false, code: result.code, message: result.message,
+        line: result.line !== undefined ? result.line : undefined,
+      });
     }
     const { taskId, status } = createTask(result.value);
     return sendJson(res, 201, {
@@ -274,6 +280,8 @@ function handleCreateTask(req, res) {
       mode: status.mode,
       note: status.note,
       strategy: result.value.strategy,
+      // 用户 CSV 的「通过但有警告」必须让用户在生成视频前就看到
+      warnings: status.warnings && status.warnings.length ? status.warnings : undefined,
     });
   });
 }

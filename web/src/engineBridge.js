@@ -29,16 +29,21 @@ const TM = require('./taskManager');
 const ratioBand = require('./adapters/ratioBand.cjs');
 const macd = require('./adapters/macd.cjs');
 const dividendEtf = require('./adapters/dividendEtf.cjs');
+const genericChart = require('./adapters/genericChart.cjs');
 
 const RUNS_DIR = path.join(PROJECT_ROOT, 'agent', 'runs');
 const OUTPUT_DIR = path.join(PROJECT_ROOT, 'output');
 const UNIFIED = ratioBand.UNIFIED; // 兼容阶段 3 导出
 
 // 可执行策略 → 适配器
+// V0.2 预览：timeseries / cross_section 走同一个通用图表渲染器，只是数据类不同。
+// stock_ohlc 尚未注册（受 DATA_SPEC §7.1 股票通道门禁约束），请求在参数校验阶段即被拒绝。
 const ADAPTERS = {
   ratio_band: ratioBand,
   macd,
   dividend_etf: dividendEtf,
+  timeseries: genericChart.timeseries,
+  cross_section: genericChart.cross_section,
 };
 
 // 并发上限 1：当前正在执行的任务 id（同步守卫）
@@ -93,7 +98,7 @@ function tryBeginExecute(taskId) {
   }
   const adapter = ADAPTERS[status.strategy];
   if (!adapter) {
-    return { ok: false, code: 'E_STRATEGY_UNSUPPORTED', message: '该策略执行功能待接入（阶段 4B），当前仅支持计划创建' };
+    return { ok: false, code: 'E_STRATEGY_UNSUPPORTED', message: '该数据类别尚未接入执行链路（当前可执行：macd / timeseries / cross_section）' };
   }
   // 先检查本任务自身状态（精确语义），再做全局并发守卫
   if (status.status === 'running') {
