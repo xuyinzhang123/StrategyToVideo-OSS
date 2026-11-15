@@ -1,14 +1,20 @@
-# 用户数据契约（V0.2 · Draft 2）
+# 用户数据契约（V0.2 · Draft 3）
 
-> 状态：**A / B 类已实现并跑通出片；C 类（股票日线）未实现，受门禁约束（见 §7.1）**。
+> 状态：**A / B 类已实现并跑通出片，含原始 CSV 留档、SHA-256 指纹与行号溯源；C 类（股票日线）未实现，受门禁约束（见 §7.1）**。
 > 适用范围：Open Source V0.1 之后新增的「用户导入 CSV」通道（V0.2）。
-> 上游依据：**Issue #1「v0.2 / 1：用户 CSV 输入到本地视频的端到端流程」**（open）。该 Issue 位于私人主仓库，未随开源包公开，故此处不写链接；`AC-01 ~ AC-12`（§9）即对应该 Issue 的验收标准。
+> 上游依据：**Issue #1「v0.2 / 1：用户 CSV 输入到本地视频的端到端流程」**（open）。该 Issue 位于私人主仓库，未随开源包公开，故此处不写链接；`AC-01 ~ AC-18`（§9）即对应该 Issue 的验收标准。
 >
 > **Draft 1 → Draft 2 变更记录（均为修正，非扩展）**
 > 1. 修正千分位数字的接受/拒绝规则：新增 `E_THOUSANDS_SEPARATOR`，并把「引号内严格千分位」与「其他含逗号形态」分开；补上 RFC 4180 引号规则（否则千分位判定不可达，见 §1.1 / §1.2）。
 > 2. 新增 §1.7 字段映射：明确列名不固定，映射由参数提供——这是 Issue #1「只通过映射即可出片、无需改源码」的落地依据。
 > 3. 把 C 类 `qfq` 封板验证（V-01）单列为「股票通道门禁」（§7.1），明确**不阻塞 A/B 通用 CSV**。
 > 4. 状态从「尚未实现」更正为「A/B 已实现、C 未实现」；Issue #1 存在性的事实更正。
+>
+> **Draft 2 → Draft 3 变更记录（补齐 Issue #1 的追溯与复现条件）**
+> 1. 新增 §1.8：原始 CSV 留档为 `source.csv`、SHA-256 指纹、`line` 源行号、`traceability.json`、按行号回读核对。
+> 2. 新增 §1.9：确定性（同输入 → 逐字节相同 MP4）与任务删除语义（连原始 CSV 与视频一起删除）。
+> 3. 页脚不再显示导入时间，改显示源文件 SHA-256 前 12 位——时间戳会破坏确定性。
+> 4. §6.1 新增 `E_SOURCE_MISSING` / `E_TRACE_MISMATCH` / `E_TRACE_FAILED` / `E_TRACE_MISSING`；§9 新增 AC-15 ~ AC-18。
 
 ---
 
@@ -143,6 +149,28 @@ CSV 的列名**不要求**叫 `date` / `value` / `label`。解析器只认「映
 | `value2` | `value2`、`对照`、`上期`、`对比值`、`第二数值` |
 
 > 别名表只是「省一次点击」，不算契约的一部分。若一个列名同时命中两个目标字段（歧义），**要求用户显式提交映射**，不做猜测。
+
+### 1.8 原始文件留档、指纹与行号溯源
+
+Issue #1 的第四条要求是「视频里的数字能回溯到原始数据」。只记录文件名和列名不够——那只能说明「大概来自这份表」。因此从本版起：
+
+| 项 | 规定 |
+|---|---|
+| 留档位置 | 任务目录 `web/tasks/<taskId>/source.csv`，内容是**本次校验所依据的那份 UTF-8 文本**（浏览器 `FileReader` 按 UTF-8 解码后的结果，BOM 已在解码阶段处理） |
+| 指纹 | `sha256(source.csv 的字节)` 全 64 位，写入任务记录（`status.source.sha256`）、归一化模型（`meta.sourceSha256`）与溯源清单 |
+| 画面呈现 | 视频页脚显示 `文件名 + sha256 前 12 位`。**页脚不显示导入时间**：时间戳会让同一份数据在不同日期出片得到不同字节，破坏确定性（见 §1.9） |
+| 源行号 | 归一化模型里每个数据点/条目带 `line`（源文件物理行号，1 起，表头是第 1 行） |
+| 溯源清单 | 渲染成功后写 `web/tasks/<taskId>/traceability.json`：源文件指纹、映射、逐条 `{位置, 数值, sourceLine, sourceText}`、视频 sha256 |
+| 回读核对 | 渲染前**重新解析** `source.csv`，按行号取回该行，逐字段比对日期/名称/数值；任一处不符 → `E_TRACE_FAILED`，**拒绝交付** |
+| 留档被改动 | `source.csv` 的 SHA-256 与创建时记录的不一致 → `E_TRACE_MISMATCH`，拒绝交付 |
+| 留档缺失 | 任务目录没有 `source.csv` → `E_SOURCE_MISSING`，拒绝交付（宁可不给视频，也不给一份无法追溯的视频） |
+| 隐私边界 | 留档只在本机任务目录，`.`gitignore` 已排除 `web/tasks/`；不上传、不进版本控制。删除任务即删除留档 |
+
+### 1.9 确定性与任务删除
+
+- **确定性**：同一份 CSV + 同一组元数据，两次独立出片（不同任务、不同运行目录、不同进程）必须得到**逐字节相同**的 MP4。画面内容只取决于数据与表单字段，不取决于时间、机器路径或随机量。仓库提供 `npm run check:determinism` 做两次独立对拍。
+- **删除语义**：`DELETE /api/tasks/<taskId>` 会删除任务目录（`source.csv`、`import.json`、`status.json`、`video.mp4`、`engine.log`、`traceability.json`）与运行目录（`output/web_<uuid>`）。执行中的任务拒绝删除（`E_ALREADY_RUNNING`）；删除后任务 ID 不可再查询。
+- 删除是**用户显式操作**，不做自动清理：任何自动流程都不会删掉用户已生成的视频。
 
 ---
 
@@ -488,6 +516,10 @@ V0.1 的停牌是「日历里有该日、但 bars 里没有该日」。用户 CS
 | `E_UNSUPPORTED_ACTION` | 配股/缩股/换股/分拆 | 方案原文 |
 | `E_NO_DATA` | C 类 ≤ 33 个交易日 | 实际交易日数 |
 | `E_CLASS_NOT_IMPLEMENTED` | 请求的类别尚未实现（当前为 `stock_ohlc`） | 类别 + 已支持清单（`timeseries` / `cross_section`） |
+| `E_SOURCE_MISSING` | 任务目录缺少原始 CSV 留档（§1.8） | 提示新建任务 |
+| `E_TRACE_MISMATCH` | `source.csv` 的 SHA-256 与创建时记录不一致（留档被改动） | 拒绝交付 |
+| `E_TRACE_FAILED` | 按行号回读 `source.csv` 时对不上（§1.8） | 前 3 处不一致 + 行号 |
+| `E_TRACE_MISSING` | 查询溯源清单但任务尚未生成视频 | 提示先出片 |
 
 ### 6.2 警告（通过，但必须显示在页面与视频上）
 
@@ -561,9 +593,12 @@ C 类在下列门禁全部通过前**不开放**；网页对 `stock_ohlc` 一律
 | `web/src/csv.js` | RFC 4180 子集解析：引号、`""` 转义、BOM、CRLF/LF/CR、分隔符检测；返回「原始文本 + 是否带引号 + 行号」 |
 | `web/src/import/mapping.js` | §1.7 映射解析、别名兜底、冲突检测 |
 | `web/src/import/validate.js` | 通用规则 + A/B 两类校验，输出 §2.2 / §3.2 归一化结构 |
-| `web/src/adapters/genericChart.cjs` | A/B 适配器：归一化模型 → 通用渲染器 → MP4 |
-| `engine_next/render_generic_chart.py` | 通用图表渲染器（折线 / 条形），仅用 `deps/` 中的 Pillow + imageio-ffmpeg |
+| `web/src/adapters/genericChart.cjs` | A/B 适配器：归一化模型 → 通用渲染器 → MP4；写 `traceability.json`，按行号回读 `source.csv`（§1.8） |
+| `engine_next/render_generic_chart.py` | 通用图表渲染器（折线 / 条形），仅用 `deps/` 中的 Pillow + imageio-ffmpeg；页脚打源文件 SHA-256 指纹 |
 | `tools/check_samples.cjs` | 逐份样例的预期结果复核（`npm run check:samples`），对应 AC-11 |
+| `tools/check_determinism.cjs` | 两次独立出片 SHA-256 对拍（`npm run check:determinism`），对应 AC-17 |
+| `web/src/taskManager.js` | 创建任务时写 `source.csv` + `status.source`；`deleteTask` 删除任务目录（§1.9） |
+| `web/server.js` | `DELETE /api/tasks/:id`、`GET /api/tasks/:id/traceability`、`GET /api/tasks/:id/source` |
 
 ---
 
@@ -585,6 +620,10 @@ C 类在下列门禁全部通过前**不开放**；网页对 `stock_ohlc` 一律
 | **AC-12** | 待验证清单列明方法与判定标准，未验证项不得写成已成立 | §7 |
 | **AC-13** | 字段映射只存在于参数中：换一份列名完全不同的 CSV，只需给映射即可出片，**不改源码** | `timeseries_single.csv` / `timeseries_multi.csv` / `cross_section.csv` + §11「换表头」实测 |
 | **AC-14** | `stock_ohlc` 在 §7.1 门禁通过前一律 `E_CLASS_NOT_IMPLEMENTED`，不产出任何视频 | `stock_ohlc.csv`（预期被拒绝，而非静默跑错） |
+| **AC-15** | 原始 CSV 留档：任务目录下有 `source.csv`，其 SHA-256 与任务记录、归一化模型、溯源清单三处一致 | 任一 A/B 样例走完网页全流程后的 `status.source.sha256` |
+| **AC-16** | 行号溯源：每个数据点都能定位到 `source.csv` 的物理行号，且按该行号回读的字段值与画面数字一致 | `traceability.json` 的 `trace[].sourceLine` / `verification` |
+| **AC-17** | 确定性：同一 CSV 两次独立出片得到逐字节相同的 MP4 | `npm run check:determinism` |
+| **AC-18** | 删除任务即删除原始 CSV 与视频（任务目录 + 运行目录），不残留 | `DELETE /api/tasks/<id>` 后目录检查 |
 
 ---
 
@@ -604,12 +643,12 @@ C 类在下列门禁全部通过前**不开放**；网页对 `stock_ohlc` 一律
 
 ## 11. 本轮边界（务必如实对待）
 
-- 本文档与 `docs/samples/*.csv` 是**契约与素材**，不是实现。
-- 仓库内**没有**任何代码读取这些样例；样例未经任何解析器执行。
-- 样例的「预期结果」按本规范推导，并用一次性核对脚本校验了结构（行数、唯一性、OHLC 关系、日期集合、缺口计数），该脚本**不入库**。
-- A / B 类的渲染器尚不存在，因此它们的「预期视频」是设计规约，不是已验证输出。
-- C 类：**映射已实测，转换器未实现**。用一次性脚本把样例 4/5 转成八段结构后，仓库现有 `backtest_stock_macd.cjs` 跑通并**自检 21/21 通过**（260 交易日 / 12 金叉 / 11 死叉 / 23 笔成交 / 费用 1,261.91 / 红利税 490.00）。这证明契约 §4.4 的映射可落地、样例数据量足够；但转换器本身仍属 Step 2，样例**不能**不经转换直接出片，也**未**实际渲染视频。
-- 上述实测在仓库外的临时目录中进行（`G:\_stv_spec_tmp`），未向仓库写入任何数据、未修改任何代码。
+- 本文档与 `docs/samples/*.csv` 是契约与素材。**A / B 类已有实现并跑通出片**（`web/src/import/*` 校验、`engine_next/render_generic_chart.py` 渲染），C 类仍是契约，渲染器与转换器均未实现，请求会被 §7.1 门禁拒绝。
+- `npm run check:samples` 是仓库自带的样例断言入口：12 份样例的通过/警告/拒绝与代码一一对应，任何人可自行复核（当前 22/22）。`npm run check:determinism` 做两次独立出片的 SHA-256 对拍。
+- A / B 类的「预期视频」已由实现产出，时长/尺寸/标注可实测；但它们仍是**演示规格**，不代表任何真实业务的呈现标准。
+- C 类：**映射已实测，转换器未实现**。用一次性脚本把样例 4/5 转成八段结构后，仓库现有 `backtest_stock_macd.cjs` 跑通并**自检 21/21 通过**（260 交易日 / 12 金叉 / 11 死叉 / 23 笔成交 / 费用 1,261.91 / 红利税 490.00）。这证明契约 §4.4 的映射可落地、样例数据量足够；但转换器本身仍属后续版本，样例**不能**不经转换直接出片。
+- 上述 C 类实测在仓库外的临时目录中进行（`G:\_stv_spec_tmp`），未向仓库写入任何数据。
+- 用户导入的原始 CSV 与视频留在本机任务目录（`web/tasks/`，已被 `.gitignore` 排除），**不进入仓库**。
 
 **实测记录（可复核）**
 

@@ -122,6 +122,24 @@ function listTaskIds() {
   return fs.readdirSync(TASKS_DIR).filter((d) => isValidTaskId(d) && fs.existsSync(path.join(taskDir(d), 'status.json')));
 }
 
+// 删除任务目录（含 source.csv、import.json、video.mp4、日志）。
+// 只接受 UUID，路径由 taskDir 派生，天然限制在 TASKS_DIR 内；
+// 运行目录（output/web_<uuid>）由调用方（server → engineBridge）一并清理。
+function deleteTask(taskId) {
+  if (!isValidTaskId(taskId)) {
+    return { ok: false, code: 'E_TASK_ID_INVALID', message: '非法的任务 ID 格式' };
+  }
+  const dir = taskDir(taskId);
+  if (path.dirname(dir) !== TASKS_DIR) {
+    return { ok: false, code: 'E_TASK_ID_INVALID', message: '任务路径越界，已拒绝' };
+  }
+  if (!fs.existsSync(dir)) {
+    return { ok: false, code: 'E_TASK_NOT_FOUND', message: '任务不存在' };
+  }
+  fs.rmSync(dir, { recursive: true, force: true });
+  return { ok: true, removed: !fs.existsSync(dir) };
+}
+
 // 重启恢复：任何处于 running 的任务视为异常中断（服务器重启/崩溃），
 // 转 failed 并记录 E_INTERRUPTED，避免被误认为 success。
 function recoverInterruptedTasks() {
@@ -148,6 +166,33 @@ function createTask(normalized) {
   // 归一化模型随之落盘为 import.json —— 执行阶段只读它，不再碰 CSV 原文，
   // 这样「校验失败」与「执行失败」不会互相掩盖，产物也可回溯（Issue #1 要求）。
   if (normalized.importModel) {
+    // 原始 CSV 留档：source.csv 是本次校验所依据的字节（UTF-8），
+    // SHA-256 是对这份字节算的，因此「同一个文件 → 同一个指纹」可被任何人复核。
+    // 文件只留在本机任务目录（web/tasks/ 已在 .gitignore 中），不进版本控制、不上传。
+    const srcText = typeof normalized.sourceText === 'string' ? normalized.sourceText : '';
+    const srcBuf = Buffer.from(srcText, 'utf8');
+    const sha256 = crypto.createHash('sha256').update(srcBuf).digest('hex');
+    const sourceLines = srcText.length === 0 ? 0 : srcText.split(/\r\n|\n|\r/).length;
+
+    fs.writeFileSync(path.join(dir, 'source.csv'), srcBuf);
+
+    // 指纹写进归一化模型：渲染器把它打在页脚，成片与源文件从此可互相指认
+    const importModel = JSON.parse(JSON.stringify(normalized.importModel));
+    importModel.meta = Object.assign({}, importModel.meta, {
+      sourceSha256: sha256,
+      sourceBytes: srcBuf.length,
+      sourceLines,
+    });
+
+    const source = {
+      fileName: normalized.fileName,
+      archivedAs: 'source.csv',
+      sha256,
+      bytes: srcBuf.length,
+      lines: sourceLines,
+      importedAt: normalized.importModel.meta.importedAt,
+    };
+
     const request = {
       taskId,
       strategy: normalized.strategy,
@@ -159,6 +204,7 @@ function createTask(normalized) {
       fileName: normalized.fileName,
       mapping: normalized.mapping,
       warnings: normalized.warnings,
+      source,
       mode: 'plan-only',
     };
     const status = {
@@ -171,12 +217,13 @@ function createTask(normalized) {
       createdAt: now,
       updatedAt: now,
       warnings: normalized.warnings,
+      source,
       note: '任务已创建（计划态），请点击「确认并生成视频」显式执行。',
       result: null,
       error: null,
     };
     atomicWriteJson(path.join(dir, 'request.json'), request);
-    atomicWriteJson(path.join(dir, 'import.json'), normalized.importModel);
+    atomicWriteJson(path.join(dir, 'import.json'), importModel);
     atomicWriteJson(path.join(dir, 'status.json'), status);
     return { taskId, status };
   }
@@ -260,5 +307,6 @@ module.exports = {
   setSuccess,
   setFailed,
   listTaskIds,
+  deleteTask,
   recoverInterruptedTasks,
 };

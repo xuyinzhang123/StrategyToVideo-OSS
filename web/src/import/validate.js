@@ -12,7 +12,7 @@
 //   - 不读任何具体列名（列名由 mapping 决定，见 import/mapping.js）。
 
 const { parseCsv, MAX_FILE_BYTES } = require('../csv');
-const { CLASS_FIELDS, resolveMapping } = require('./mapping');
+const { CLASS_FIELDS, resolveMapping, labelOf } = require('./mapping');
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 // 严格千分位：同时满足才算「可识别的千分位」（DATA_SPEC §1.2）
@@ -263,7 +263,9 @@ function buildTimeseries(ctx) {
       bySeries.set(seriesName, []);
       order.push(seriesName);
     }
-    bySeries.get(seriesName).push({ date: dateRaw, value });
+    // line 是源文件里的物理行号（1 起），用于「视频里的数字 → CSV 具体行」的追溯；
+    // 渲染器不读它，traceability.json 与页面溯源面板读它。
+    bySeries.get(seriesName).push({ date: dateRaw, value, line: rec.line });
   }
 
   if (order.length > MAX_SERIES) {
@@ -330,12 +332,12 @@ function buildCrossSection(ctx) {
   for (const rec of dataRecords) {
     const label = rec.fields[mp.map.label].text.trim();
     if (!label) {
-      return fail('E_ROW_EMPTY_FIELD', `第 ${rec.line} 行的标签（label）为空。`, { line: rec.line });
+      return fail('E_ROW_EMPTY_FIELD', `第 ${rec.line} 行的「名称」为空。`, { line: rec.line });
     }
     if (seen.has(label)) {
       return fail(
         'E_DUP_LABEL',
-        `第 ${rec.line} 行与第 ${seen.get(label)} 行的标签「${label}」重复。本工具不自动合并（合并口径应由你决定），请先处理重复项。`,
+        `第 ${rec.line} 行与第 ${seen.get(label)} 行重复：名称都是「${label}」。本工具不自动合并（合并口径应由你决定），请先处理重复项。`,
         { line: rec.line },
       );
     }
@@ -345,7 +347,8 @@ function buildCrossSection(ctx) {
     if (pn.code) return fail(pn.code, pn.message, { line: rec.line });
     if (pn.empty) return fail('E_ROW_EMPTY_FIELD', `第 ${rec.line} 行的数值为空。`, { line: rec.line });
 
-    const row = { label, value: pn.value };
+    // line：源文件物理行号，供「画面数字 → CSV 行」追溯
+    const row = { label, value: pn.value, line: rec.line };
 
     if (mp.map.group !== undefined) {
       const g = rec.fields[mp.map.group].text.trim();
@@ -366,8 +369,8 @@ function buildCrossSection(ctx) {
     if (emptyRows.length > 0 && emptyRows.length < rows.length) {
       return fail(
         'E_PARTIAL_COLUMN',
-        `可选列「${f}」部分行为空（第 ${emptyRows.slice(0, 5).join('、')} 行等 ${emptyRows.length} 行）。`
-          + '请补齐整列，或删除整列后重传。',
+        `「${labelOf(f)}」这一列有的行有值、有的行是空的（第 ${emptyRows.slice(0, 5).join('、')} 行等 ${emptyRows.length} 行）。`
+          + '请补齐整列，或删掉这一列后重传。',
       );
     }
   }

@@ -21,6 +21,7 @@
   var wsVideo = document.getElementById('ws-video');
   var wsVideoEl = document.getElementById('ws-video-el');
   var wsDownload = document.getElementById('ws-download');
+  var wsTrace = document.getElementById('ws-trace');
   var wsError = document.getElementById('ws-error');
 
   var selected = null;
@@ -205,7 +206,7 @@
 
   function buildCsvForm(strategy) {
     var m = META[strategy];
-    csvState = { text: null, name: '', headers: [] };
+    csvState = { text: null, name: '', headers: [], encodingBad: false };
     if (paramsBadge) paramsBadge.textContent = m.badge || 'V0.2 预览 · 用户 CSV';
     paramsForm.innerHTML = '';
     paramsForm.appendChild(el('<p class="field-note">选择一份你自己的 CSV。数值会被原样画进视频，'
@@ -213,8 +214,9 @@
 
     paramsForm.appendChild(el(
       '<div class="field field-wide"><label>CSV 文件（≤ 2 MiB · UTF-8 · 逗号分隔）</label>' +
-      '<input type="file" id="f-csv" accept=".csv,text/csv,text/plain" />' +
-      '<span class="field-hint">首行必须是表头。GBK 编码请先另存为 UTF-8；文件只在本机读取，不上传云端。</span></div>'
+      '<div class="file-row"><input type="file" id="f-csv" accept=".csv,text/csv,text/plain" />' +
+      '<button type="button" id="f-csv-reset" class="ghost-btn" disabled>重新选择</button></div>' +
+      '<span class="field-hint">首行必须是表头。文件只在本机读取，不上传云端；创建任务后原文件会留档在任务目录里，供日后核对。</span></div>'
     ));
     paramsForm.appendChild(els(
       '<div class="field"><label>视频标题</label>' +
@@ -229,12 +231,32 @@
       '<div class="field field-wide"><label>数据来源说明（可空，会写进视频页脚）</label>' +
       '<input type="text" id="f-srcnote" maxlength="120" placeholder="例如：内部测算 / 公开月报" /></div>'
     ));
-    paramsForm.appendChild(el('<div class="mapping-grid" id="map-grid" hidden><p class="mapping-title">列映射（文件里的列名 → 字段）</p></div>'));
+    paramsForm.appendChild(el('<p class="warn-box" id="csv-warn" hidden></p>'));
+    paramsForm.appendChild(el('<div class="mapping-grid" id="map-grid" hidden><p class="mapping-title">列映射（文件里的列名 → 字段）</p><p class="map-status" id="map-status"></p></div>'));
     paramsForm.appendChild(el('<pre class="csv-preview" id="csv-preview" hidden></pre>'));
 
     findEl('f-csv').addEventListener('change', onCsvChosen);
+    findEl('f-csv-reset').addEventListener('click', resetCsvChoice);
     createBtn.disabled = true;
     hint.textContent = '已选择：' + m.name + '。请先选择 CSV 文件。';
+  }
+
+  // 「重新选择」：清掉文件与映射状态，但保留标题/单位/来源等已填内容，
+  // 让用户不必因为选错一个文件就从头填一遍。
+  function resetCsvChoice() {
+    csvState = { text: null, name: '', headers: [], encodingBad: false };
+    var file = findEl('f-csv');
+    if (file) file.value = '';
+    var grid = findEl('map-grid');
+    if (grid) { grid.hidden = true; grid.innerHTML = '<p class="mapping-title">列映射（文件里的列名 → 字段）</p>' + '<p class="map-status" id="map-status"></p>'; }
+    var pre = findEl('csv-preview');
+    if (pre) { pre.hidden = true; pre.textContent = ''; pre.className = 'csv-preview'; }
+    var warn = findEl('csv-warn');
+    if (warn) { warn.hidden = true; warn.textContent = ''; }
+    var reset = findEl('f-csv-reset');
+    if (reset) reset.disabled = true;
+    createBtn.disabled = true;
+    showResult(createResult, true, '已清除所选文件，请重新选择。');
   }
 
   function parseHeaderLine(text) {
@@ -269,43 +291,125 @@
   function buildMappingUI(strategy) {
     var grid = findEl('map-grid');
     if (!grid) return;
-    grid.innerHTML = '<p class="mapping-title">列映射（文件里的列名 → 字段）</p>';
+    grid.innerHTML = '<p class="mapping-title">列映射（文件里的列名 → 字段）</p>'
+      + '<p class="map-status" id="map-status"></p>';
     var fields = CSV_FIELDS[strategy] || [];
     fields.forEach(function (f) {
       var guess = guessColumn(csvState.headers, f.alias);
       var opts = ['<option value="">（不指定）</option>'].concat(csvState.headers.map(function (h) {
         return '<option value="' + escapeHtml(h) + '"' + (h === guess ? ' selected' : '') + '>' + escapeHtml(h) + '</option>';
       })).join('');
-      grid.appendChild(el('<div class="field"><label>' + f.label + '</label>'
-        + '<select data-field="' + f.key + '">' + opts + '</select></div>'));
+      var box = el('<div class="field"><label>' + f.label + '</label>'
+        + '<select data-field="' + f.key + '" data-required="' + (f.label.indexOf('必填') >= 0 ? '1' : '0') + '">'
+        + opts + '</select></div>');
+      var sel = box.querySelector('select');
+      sel.addEventListener('change', updateMappingState);
+      grid.appendChild(box);
     });
     grid.hidden = false;
+    updateMappingState();
+  }
+
+  // 映射的即时反馈：必填没选 / 同一列被用两次 / 有列没用上，都在这里当场说清楚，
+  // 不用等提交后才看到一条错误（旧版要点了「创建任务」才知道漏选）。
+  function updateMappingState() {
+    var status = findEl('map-status');
+    var selects = Array.prototype.slice.call(document.querySelectorAll('#map-grid select'));
+    if (!selects.length) { if (status) status.textContent = ''; return; }
+    var missing = [];
+    var used = {};
+    var dup = [];
+    selects.forEach(function (s) {
+      var label = s.parentNode.querySelector('label').textContent.replace('（必填）', '').replace('（可空）', '');
+      s.classList.remove('field-bad');
+      if (!s.value) {
+        if (s.getAttribute('data-required') === '1') { missing.push(label); s.classList.add('field-bad'); }
+        return;
+      }
+      if (used[s.value]) {
+        dup.push('「' + s.value + '」被「' + used[s.value] + '」和「' + label + '」同时选中');
+        s.classList.add('field-bad');
+      } else {
+        used[s.value] = label;
+      }
+    });
+    var extra = csvState.headers.filter(function (h) { return !used[h]; });
+
+    var msgs = [];
+    if (csvState.encodingBad) {
+      msgs.push('文件编码不是 UTF-8，已暂停创建（见上方提示）。');
+    } else if (missing.length) {
+      msgs.push('还没选：' + missing.join('、') + '。选中后才能创建任务。');
+    } else if (dup.length) {
+      msgs.push(dup.join('；') + '。一列只能当一个字段用。');
+    } else {
+      msgs.push('映射完整，可以创建任务。');
+      if (extra.length) msgs.push('未使用的列会被忽略：' + extra.join('、'));
+    }
+    if (status) {
+      status.textContent = msgs.join(' ');
+      status.className = 'map-status ' + (missing.length || dup.length || csvState.encodingBad ? 'bad' : 'ok');
+    }
+    createBtn.disabled = !csvState.text || !!csvState.encodingBad || missing.length > 0 || dup.length > 0;
   }
 
   function onCsvChosen(ev) {
     var file = ev.target.files && ev.target.files[0];
     if (!file) return;
+    var warn = findEl('csv-warn');
+    var reset = findEl('f-csv-reset');
+    if (reset) reset.disabled = false;
     if (file.size > 2 * 1024 * 1024) {
-      showResult(createResult, false, '文件 ' + (file.size / 1048576).toFixed(2)
-        + ' MiB 超过 2 MiB 上限。请先截取需要的区间后重传。');
+      csvState = { text: null, name: '', headers: [], encodingBad: false };
       createBtn.disabled = true;
+      if (warn) {
+        warn.hidden = false;
+        warn.textContent = '文件 ' + (file.size / 1048576).toFixed(2)
+          + ' MiB 超过 2 MiB 上限。请先截取需要的区间后重传。';
+      }
       return;
     }
     var reader = new FileReader();
     reader.onload = function () {
-      csvState.text = String(reader.result || '');
-      csvState.name = file.name;
-      csvState.headers = parseHeaderLine(csvState.text);
-      buildMappingUI(selected);
-      var lines = csvState.text.split(/\r\n|\n|\r/);
+      var text = String(reader.result || '');
+      // FileReader 按 UTF-8 解码；GBK/GB18030 文件会得到 U+FFFD 替换符。
+      // 这是中文 Windows 上 Excel「另存为 CSV」的默认编码，属于最高频的真实入口，
+      // 所以必须在预览阶段就说清楚，而不是等提交后返回 E_ENCODING。
+      var encodingBad = text.indexOf('\uFFFD') >= 0;
+      csvState = {
+        text: text,
+        name: file.name,
+        headers: encodingBad ? [] : parseHeaderLine(text),
+        encodingBad: encodingBad
+      };
+      var lines = text.split(/\r\n|\n|\r/);
       var pre = findEl('csv-preview');
       if (pre) {
         pre.hidden = false;
+        pre.className = 'csv-preview' + (encodingBad ? ' garbled' : '');
         pre.textContent = lines.slice(0, 4).join('\n') + (lines.length > 4 ? '\n…' : '');
       }
-      createBtn.disabled = csvState.headers.length === 0;
+      if (warn) {
+        if (encodingBad) {
+          warn.hidden = false;
+          warn.textContent = '这份文件不是 UTF-8 编码（很可能是 GBK，中文 Windows 上 Excel「另存为 CSV」的默认格式），'
+            + '上面的预览已经是乱码，继续下去只会得到乱码标题。请在 Excel 里选「另存为 → CSV UTF-8（逗号分隔）」，'
+            + '或用记事本「另存为 → 编码：UTF-8」后重新选择文件。';
+        } else {
+          warn.hidden = true;
+          warn.textContent = '';
+        }
+      }
+      if (encodingBad) {
+        if (findEl('map-grid')) findEl('map-grid').hidden = true;
+        createBtn.disabled = true;
+        showResult(createResult, false, '已暂停：文件编码不是 UTF-8，请按上方提示另存后重试。');
+        return;
+      }
+      buildMappingUI(selected);
+      // 不要把按钮直接置为可用：buildMappingUI 内部已按「必填是否选全」算过一次
       showResult(createResult, true, '已读取 ' + file.name + '（' + (file.size / 1024).toFixed(1)
-        + ' KB，' + csvState.headers.length + ' 列）。请确认列映射后创建任务。');
+        + ' KB，' + csvState.headers.length + ' 列）。请确认下方列映射后创建任务。');
     };
     reader.onerror = function () { showResult(createResult, false, '读取文件失败，请重试。'); };
     reader.readAsText(file, 'utf-8');
@@ -324,7 +428,8 @@
   function collectRequest() {
     var m = META[selected];
     if (m && m.userCsv) {
-      if (!csvState.text) throw new Error('尚未选择 CSV 文件');
+      if (csvState.encodingBad) throw new Error('文件编码不是 UTF-8，请先另存为 UTF-8 再选择');
+      if (!csvState.text) throw new Error('请先选择 CSV 文件');
       var req = { strategy: selected, csvText: csvState.text, fileName: csvState.name };
       var t = findEl('f-title');
       if (t && t.value.trim()) req.title = t.value.trim();
@@ -359,7 +464,7 @@
     if (!selected) return;
     var req;
     try { req = collectRequest(); }
-    catch (e) { showResult(createResult, false, '表单读取失败'); return; }
+    catch (e) { showResult(createResult, false, e.message || '表单读取失败'); return; }
 
     createBtn.disabled = true;
     createResult.className = 'result';
@@ -382,13 +487,27 @@
           showResult(createResult, true, msg);
           loadTaskIntoWorkspace(res.body.taskId);
         } else {
-          var failMsg = '创建失败（' + (res.body.code || res.status) + '）：' + (res.body.message || '未知错误');
-          if (res.body.line) failMsg += '\n定位：文件第 ' + res.body.line + ' 行';
-          showResult(createResult, false, failMsg);
+          // 用户能读懂的部分放最前，英文错误码只作为「反馈时提供」的技术标识，
+          // 不再把内部字段名（date / value）当成给用户看的提示。
+          var parts = ['没能生成任务：' + (res.body.message || '未知错误')];
+          if (res.body.line) parts.push('定位：文件第 ' + res.body.line + ' 行');
+          if (res.body.code) parts.push('技术代码 ' + res.body.code + '（反馈时请提供）');
+          showResult(createResult, false, parts.join('\n'));
+          if (res.body.missing && res.body.missing.length) highlightMissing(res.body.missing);
         }
       })
       .catch(function () { showResult(createResult, false, '无法连接服务器'); })
-      .finally(function () { createBtn.disabled = false; });
+      .finally(function () {
+        // 恢复按钮状态时必须重新走一遍映射校验，否则「必填没选」的按钮会被重新点亮
+        if (META[selected] && META[selected].userCsv) updateMappingState();
+        else createBtn.disabled = false;
+      });
+  }
+
+  function highlightMissing(fields) {
+    Array.prototype.forEach.call(document.querySelectorAll('#map-grid select'), function (s) {
+      if (fields.indexOf(s.getAttribute('data-field')) >= 0) s.classList.add('field-bad');
+    });
   }
 
   // ---- 工作区渲染 ----
@@ -414,12 +533,17 @@
     wsBadge.textContent = task.status;
 
     if (task.dataClass) {
-      // 用户 CSV：没有本金/区间，展示数据类别、标题、行数与数据提示
+      // 用户 CSV：没有本金/区间，展示数据类别、标题、来源文件指纹、行数与数据提示
       var clsName = task.dataClass === 'timeseries' ? '通用时间序列' : '横向对比';
       var html = '<div><b>任务 ID</b>：' + task.taskId + '</div>'
         + '<div><b>数据类别</b>：' + clsName + '</div>'
         + '<div><b>标题</b>：' + escapeHtml(task.title || '（未命名）') + '</div>'
         + '<div><b>状态</b>：' + task.status + '</div>';
+      if (task.source) {
+        html += '<div><b>源文件</b>：' + escapeHtml(task.source.fileName || '（未命名）')
+          + ' · ' + task.source.lines + ' 行 · ' + task.source.bytes + ' 字节'
+          + ' · sha256:' + String(task.source.sha256 || '').slice(0, 12) + '…</div>';
+      }
       if (task.warnings && task.warnings.length) {
         html += '<div><b>数据提示</b>：' + task.warnings.map(function (w) {
           return escapeHtml(w.message);
@@ -427,10 +551,18 @@
       }
       if (task.result) {
         if (task.result.rowCount != null) html += '<div><b>数据行数</b>：' + task.result.rowCount + '</div>';
+        if (task.result.trace) {
+          html += '<div><b>溯源</b>：' + task.result.trace.verified + ' / ' + task.result.trace.points
+            + ' 个数据点已回读核对到 source.csv 的具体行号</div>';
+        }
         if (task.result.video) {
           html += '<div><b>视频</b>：' + task.result.video.width + '×' + task.result.video.height
             + ' @ ' + task.result.video.fps + 'fps · ' + task.result.video.durationSec
             + 's · ' + task.result.video.frames + ' 帧</div>';
+          if (task.result.video.sha256) {
+            html += '<div><b>视频指纹</b>：sha256:' + task.result.video.sha256.slice(0, 12) + '…'
+              + '（同一份数据重复出片应完全一致）</div>';
+          }
         }
       }
       wsSummary.innerHTML = html;
@@ -470,6 +602,8 @@
     } else if (task.status === 'success') {
       wsActions.appendChild(el('<p class="ok-note">✓ 视频已生成，可在下方预览 / 下载。</p>'));
     }
+    // 删除任务：会同时删掉任务目录（source.csv / 视频 / 日志）与运行目录，需两次点击确认
+    if (task.status !== 'running') wsActions.appendChild(makeDeleteButton(task.taskId));
 
     // 进度 / 视频
     if (task.status === 'running') {
@@ -484,6 +618,88 @@
         hideVideo();
       }
     }
+
+    renderTrace(task);
+  }
+
+  // 删除任务：第一次点击变成「确认删除」，第二次才真正请求 DELETE。
+  // 不用 window.confirm —— 原生弹窗在无头/自动化环境里会阻塞，也不好写一致文案。
+  function makeDeleteButton(taskId) {
+    var btn = el('<button class="danger-btn" type="button">删除任务</button>');
+    var armed = false;
+    btn.addEventListener('click', function () {
+      if (!armed) {
+        armed = true;
+        btn.textContent = '再点一次确认删除（含原始 CSV 与视频）';
+        btn.classList.add('armed');
+        return;
+      }
+      btn.disabled = true;
+      btn.textContent = '删除中…';
+      fetch('/api/tasks/' + encodeURIComponent(taskId), { method: 'DELETE' })
+        .then(function (r) { return r.json().then(function (b) { return { status: r.status, body: b }; }); })
+        .then(function (res) {
+          if (res.status === 200 && res.body.ok) {
+            ws.hidden = true;
+            wsTrace.hidden = true;
+            wsTrace.innerHTML = '';
+            hideVideo();
+            hideProgress();
+            currentTaskId = null;
+            showResult(createResult, true,
+              '任务已删除。任务目录（原始 CSV、视频、日志）与运行目录都已清理，磁盘上没有残留。');
+          } else {
+            btn.disabled = false;
+            armed = false;
+            btn.classList.remove('armed');
+            btn.textContent = '删除任务';
+            showWsError('删除失败：' + (res.body.message || res.body.code || res.status));
+          }
+        })
+        .catch(function () {
+          btn.disabled = false;
+          armed = false;
+          btn.classList.remove('armed');
+          btn.textContent = '删除任务';
+          showWsError('无法连接服务器，删除未执行');
+        });
+    });
+    return btn;
+  }
+
+  // 溯源面板：列出「画面上的数字 ← 源文件第几行」，并给出原始 CSV 下载入口
+  function renderTrace(task) {
+    wsTrace.hidden = true;
+    wsTrace.innerHTML = '';
+    if (task.status !== 'success' || !task.dataClass) return;
+    fetch('/api/tasks/' + encodeURIComponent(task.taskId) + '/traceability')
+      .then(function (r) { return r.json(); })
+      .then(function (body) {
+        if (!body.ok || !body.traceability) return;
+        var tr = body.traceability;
+        var v = tr.verification || {};
+        var rows = (tr.trace || []).slice(0, 8).map(function (t) {
+          var pos = t.kind === 'bar' ? t.label : (t.series + ' · ' + t.date);
+          return '<tr><td>第 ' + t.sourceLine + ' 行</td><td>' + escapeHtml(pos) + '</td><td>'
+            + escapeHtml(fmtNum(t.value)) + '</td><td>' + escapeHtml(t.sourceText || '') + '</td></tr>';
+        }).join('');
+        var more = (tr.trace || []).length > 8
+          ? '<p class="trace-foot">仅显示前 8 行，共 ' + (tr.trace || []).length + ' 行；完整清单见任务目录 traceability.json。</p>'
+          : '';
+        wsTrace.innerHTML = '<details open><summary>数据溯源：' + (v.verified || 0) + ' / ' + (v.points || 0)
+          + ' 个数据点已按行号回读核对（源文件 sha256:' + String(tr.source.sha256).slice(0, 12) + '…）</summary>'
+          + '<table class="trace-table"><thead><tr><th>源文件</th><th>位置</th><th>数值</th><th>该行原文</th></tr></thead>'
+          + '<tbody>' + rows + '</tbody></table>' + more
+          + '<p class="trace-foot"><a href="/api/tasks/' + encodeURIComponent(task.taskId)
+          + '/source">下载留档的原始 CSV</a> · 视频 sha256:' + String(tr.video.sha256).slice(0, 16) + '…</p></details>';
+        wsTrace.hidden = false;
+      })
+      .catch(function () { /* 溯源面板失败不影响视频预览 */ });
+  }
+
+  function fmtNum(v) {
+    if (v === null || v === undefined) return '—';
+    return String(v);
   }
 
   // 阶段 4A：只展示真实可观测的阶段状态，不计算/展示任何百分比或虚构进度

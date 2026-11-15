@@ -266,6 +266,9 @@ function validateUserCsvRequest(body, dataClass) {
       mapping: r.model.meta.mapping || {},
       warnings: (r.warnings || []).map((w) => ({ code: w.code, message: w.message })),
       importModel: r.model,
+      // 原始 CSV 文本：由 taskManager 原样落到任务目录 source.csv 并算 SHA-256（留档 + 溯源）。
+      // 不进 request.json、不进视频模型之外的任何对外响应。
+      sourceText: body.csvText,
       mode: 'plan-only',
     },
   };

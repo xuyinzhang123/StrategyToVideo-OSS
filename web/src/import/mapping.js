@@ -11,6 +11,25 @@ const CLASS_FIELDS = {
   cross_section: { required: ['label', 'value'], optional: ['group', 'value2'] },
 };
 
+// 面向用户的字段名。错误文案里出现 date / value 会让界面上的「日期（必填）」「数值（必填）」
+// 对不上号，用户不知道该改哪一栏——所以对外一律用中文标签，内部键名只在日志/技术码里出现。
+const FIELD_LABELS = {
+  date: '日期',
+  value: '数值',
+  series: '序列名',
+  label: '名称',
+  group: '分组',
+  value2: '对照值',
+};
+
+function labelOf(field) {
+  return FIELD_LABELS[field] || String(field);
+}
+
+function labelsOf(fields) {
+  return fields.map(labelOf).join('、');
+}
+
 // 仅在「未显式提交映射」时兜底一次；不是契约的一部分（§1.7.1）
 const ALIASES = {
   date: ['date', '日期', '时间', '交易日', '月份', '年月'],
@@ -42,14 +61,14 @@ function resolveMapping(dataClass, headerFields, mapping) {
   const provided = {};
   if (mapping !== undefined && mapping !== null) {
     if (typeof mapping !== 'object' || Array.isArray(mapping)) {
-      return { ok: false, code: 'E_MAPPING_FIELD', message: 'mapping 必须是对象，例如 {"date":"日期","value":"销量"}' };
+      return { ok: false, code: 'E_MAPPING_FIELD', message: '列映射格式不对：应为「字段 → 列名」的键值对。' };
     }
     for (const key of Object.keys(mapping)) {
       if (!allowed.includes(key)) {
         return {
           ok: false,
           code: 'E_MAPPING_FIELD',
-          message: `不支持的目标字段：${key}（${dataClass} 允许：${allowed.join(' / ')}）`,
+          message: `列映射里有这个文件用不到的字段：${key}。本类别可映射：${labelsOf(allowed)}。`,
         };
       }
       const v = mapping[key];
@@ -67,7 +86,7 @@ function resolveMapping(dataClass, headerFields, mapping) {
         return {
           ok: false,
           code: 'E_MAPPING_COLUMN',
-          message: `映射「${field}」指向的列「${provided[field]}」不存在。文件实际表头：${listHeader(headerFields)}`,
+          message: `「${labelOf(field)}」指向的列「${provided[field]}」不在表头里。文件实际表头：${listHeader(headerFields)}`,
           field,
         };
       }
@@ -84,7 +103,7 @@ function resolveMapping(dataClass, headerFields, mapping) {
       return {
         ok: false,
         code: 'E_MAPPING_COLUMN',
-        message: `「${field}」匹配到多列（${candidates.map((i) => headerFields[i].text).join(' / ')}），存在歧义。请显式提供 mapping 指定其中一列。`,
+        message: `「${labelOf(field)}」同时匹配到多列（${candidates.map((i) => headerFields[i].text).join(' / ')}），不知道该用哪个。请在「列映射」里明确选一列。`,
         field,
       };
     } else if (spec.required.includes(field)) {
@@ -96,9 +115,11 @@ function resolveMapping(dataClass, headerFields, mapping) {
     return {
       ok: false,
       code: 'E_MAPPING_COLUMN',
-      message: `无法识别必填字段：${missing.join('、')}。文件实际表头：${listHeader(headerFields)}。`
-        + '请在页面上选择对应的列，或提交 mapping 参数。',
+      message: `还没指定必填字段：${labelsOf(missing)}。文件实际表头：${listHeader(headerFields)}。`
+        + '请在页面的「列映射」里为它选择对应的列。',
       missing,
+      missingLabels: missing.map(labelOf),
+      headers: headerFields.map((f) => f.text),
     };
   }
 
@@ -110,7 +131,7 @@ function resolveMapping(dataClass, headerFields, mapping) {
       return {
         ok: false,
         code: 'E_MAPPING_DUP',
-        message: `列「${headerFields[idx].text}」同时被 ${usedBy.get(idx)} 与 ${field} 使用，不允许一列承担两个字段。`,
+        message: `列「${headerFields[idx].text}」被「${labelOf(usedBy.get(idx))}」和「${labelOf(field)}」同时占用，一列只能当一个字段用。`,
       };
     }
     usedBy.set(idx, field);
@@ -123,4 +144,4 @@ function resolveMapping(dataClass, headerFields, mapping) {
   return { ok: true, map: resolved, extra };
 }
 
-module.exports = { CLASS_FIELDS, ALIASES, resolveMapping, norm };
+module.exports = { CLASS_FIELDS, ALIASES, FIELD_LABELS, labelOf, resolveMapping, norm };

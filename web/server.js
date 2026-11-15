@@ -9,6 +9,7 @@ const { PUBLIC_DIR, PROJECT_ROOT, DEPS_DIR, ENGINE_NEXT_DIR } = require('./src/p
 const { validateTaskRequest } = require('./src/validation');
 const {
   createTask, getTask, isValidTaskId, taskDir: taskManagerTaskDir, recoverInterruptedTasks,
+  deleteTask, readTaskFile,
 } = require('./src/taskManager');
 const engineBridge = require('./src/engineBridge');
 
@@ -156,6 +157,18 @@ function handler(req, res) {
   if (req.method === 'GET' && taskMatch) {
     return handleGetTask(req, res, taskMatch[1]);
   }
+  // 删除任务：同时清掉任务目录（含 source.csv / video.mp4）与运行目录 output/web_<uuid>
+  if (req.method === 'DELETE' && taskMatch) {
+    return handleDeleteTask(req, res, taskMatch[1]);
+  }
+  const traceMatch = /^\/api\/tasks\/([^/]+)\/traceability$/.exec(pathname);
+  if (req.method === 'GET' && traceMatch) {
+    return handleTraceability(req, res, traceMatch[1]);
+  }
+  const sourceMatch = /^\/api\/tasks\/([^/]+)\/source$/.exec(pathname);
+  if (req.method === 'GET' && sourceMatch) {
+    return handleSource(req, res, sourceMatch[1]);
+  }
   const execMatch = /^\/api\/tasks\/([^/]+)\/execute$/.exec(pathname);
   if (req.method === 'POST' && execMatch) {
     return handleExecute(req, res, execMatch[1]);
@@ -299,6 +312,91 @@ function handleGetTask(req, res, rawId) {
   return sendJson(res, 200, { ok: true, task: status });
 }
 
+// 删除任务：先删运行目录，再删任务目录（任务目录里有 status.json，最后删掉它，
+// 这样中途失败仍能用任务 ID 查到残留）。执行中的任务拒绝删除。
+function handleDeleteTask(req, res, rawId) {
+  if (isCrossOrigin(req)) {
+    return sendJson(res, 403, { ok: false, code: 'E_CROSS_ORIGIN', message: '拒绝跨站请求' });
+  }
+  let id;
+  try { id = decodeURIComponent(rawId); } catch (_) { id = rawId; }
+  if (!isValidTaskId(id)) {
+    return sendJson(res, 400, { ok: false, code: 'E_TASK_ID_INVALID', message: '非法的任务 ID 格式' });
+  }
+  const status = getTask(id);
+  if (!status) {
+    return sendJson(res, 404, { ok: false, code: 'E_TASK_NOT_FOUND', message: '任务不存在' });
+  }
+  if (engineBridge.getActiveTaskId() === id) {
+    return sendJson(res, 409, { ok: false, code: 'E_ALREADY_RUNNING', message: '任务正在执行，请等它结束后再删除' });
+  }
+  const run = engineBridge.deleteRunDir(id);
+  if (!run.ok) {
+    return sendJson(res, 400, { ok: false, code: run.code, message: run.message });
+  }
+  const del = deleteTask(id);
+  if (!del.ok) {
+    return sendJson(res, del.code === 'E_TASK_NOT_FOUND' ? 404 : 400,
+      { ok: false, code: del.code, message: del.message });
+  }
+  return sendJson(res, 200, {
+    ok: true,
+    taskId: id,
+    removed: { taskDir: true, sourceCsv: true, video: true, runDir: !!run.removed },
+  });
+}
+
+// 溯源清单：读取任务目录里的 traceability.json（渲染成功时由适配器写入）
+function handleTraceability(req, res, rawId) {
+  let id;
+  try { id = decodeURIComponent(rawId); } catch (_) { id = rawId; }
+  if (!isValidTaskId(id)) {
+    return sendJson(res, 400, { ok: false, code: 'E_TASK_ID_INVALID', message: '非法的任务 ID 格式' });
+  }
+  const status = getTask(id);
+  if (!status) {
+    return sendJson(res, 404, { ok: false, code: 'E_TASK_NOT_FOUND', message: '任务不存在' });
+  }
+  const tr = readTaskFile(id, 'traceability.json');
+  if (!tr) {
+    return sendJson(res, 404, {
+      ok: false,
+      code: 'E_TRACE_MISSING',
+      message: '该任务还没有溯源清单（尚未生成视频，或任务创建于本功能之前）',
+    });
+  }
+  return sendJson(res, 200, { ok: true, traceability: tr });
+}
+
+// 下载留档的原始 CSV（source.csv），仅供本机核对
+function handleSource(req, res, rawId) {
+  let id;
+  try { id = decodeURIComponent(rawId); } catch (_) { id = rawId; }
+  if (!isValidTaskId(id)) {
+    return sendJson(res, 400, { ok: false, code: 'E_TASK_ID_INVALID', message: '非法的任务 ID 格式' });
+  }
+  const status = getTask(id);
+  if (!status) {
+    return sendJson(res, 404, { ok: false, code: 'E_TASK_NOT_FOUND', message: '任务不存在' });
+  }
+  const p = path.join(taskManagerTaskDir(id), 'source.csv');
+  fs.stat(p, (err, stat) => {
+    if (err || !stat.isFile()) {
+      res.writeHead(404, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({ ok: false, code: 'E_SOURCE_MISSING', message: '该任务没有原始 CSV 留档' }));
+      return;
+    }
+    const orig = (status.source && status.source.fileName) || 'source.csv';
+    res.writeHead(200, {
+      'Content-Type': 'text/csv; charset=utf-8',
+      'Content-Length': stat.size,
+      'Content-Disposition': `attachment; filename="source.csv"; filename*=UTF-8''${encodeURIComponent(orig)}`,
+      'Cache-Control': 'no-store',
+    });
+    fs.createReadStream(p).pipe(res);
+  });
+}
+
 // 显式「确认并生成视频」：同步守卫防重复/并发，后台异步执行，立即返回。
 function handleExecute(req, res, rawId) {
   if (isCrossOrigin(req)) {
@@ -417,6 +515,9 @@ module.exports = {
   handleGetTask,
   handleExecute,
   handleVideo,
+  handleDeleteTask,
+  handleTraceability,
+  handleSource,
   isCrossOrigin,
   readJsonBody,
   HOST,

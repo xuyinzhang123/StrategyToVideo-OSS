@@ -53,6 +53,9 @@ npm start
 4. 在浏览器打开 **http://127.0.0.1:8080/**。
 5. 选择 **MACD 演示策略（模拟数据）** → **创建任务** → **确认并生成视频**。完成后即可在本地网页预览或下载 MP4。
 6. （V0.2 预览）也可选择 **导入 CSV · 时间序列** 或 **导入 CSV · 分类对比**，选一个本地 CSV，确认字段映射后创建任务。想先试通流程，可直接用 [`docs/samples/`](docs/samples/) 里的样例文件。
+7. （V0.2 预览）出片后，工作区会显示**数据溯源**：画面上的每个数字对应留档 CSV 的第几行、原样内容是什么，并可下载留档的原始 CSV。删除任务会连同原始 CSV 与视频一起清理。
+
+数据留档与可复现性：创建任务时，原始 CSV 会原样存到 `web/tasks/<任务ID>/source.csv`（只在本机，已被 `.gitignore` 排除），并计算 SHA-256；视频页脚显示该指纹前 12 位。同一份 CSV 重复出片应得到**逐字节相同**的 MP4，可用 `npm run check:determinism` 自行对拍；样例规则的断言入口是 `npm run check:samples`。
 
 安装时会从 PyPI 获取 Pillow 和 imageio-ffmpeg；**依赖安装完成后，回测、渲染和视频生成均可离线进行**。渲染器会通过 `imageio_ffmpeg.get_ffmpeg_exe()` 查找编码器，无需手工配置 FFmpeg 的 PATH。建议按上述命令将依赖装入项目内的 `deps/`，否则 `/api/health` 的 `renderEnv.ready` 状态可能显示 `false`。
 

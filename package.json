@@ -7,7 +7,8 @@
   "scripts": {
     "start": "node web/server.js",
     "gen:demo": "node tools/gen_demo_data.cjs",
-    "check:samples": "node tools/check_samples.cjs"
+    "check:samples": "node tools/check_samples.cjs",
+    "check:determinism": "node tools/check_determinism.cjs"
   },
   "engines": {
     "node": ">=18"

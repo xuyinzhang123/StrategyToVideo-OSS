@@ -10,7 +10,8 @@
      唯一允许的派生量是 cross_section 的「占比」（该行 ÷ 合计），且必须在画面上写出式子。
   2. 不联网、不读机器专属路径；仅用 deps/ 里的 Pillow 与 imageio-ffmpeg。
   3. 不使用 A 股红涨绿跌语义（本工具画的不是涨跌）。
-  4. 页脚必须显示来源（文件名 / 导入时间）与免责声明，不删除。
+  4. 页脚必须显示来源（文件名 / 源文件 SHA-256 指纹）与免责声明，不删除。
+     页脚不写导入时间：时间戳会让同一份数据在不同日期出片得到不同字节。
 
 用法：
   python engine_next/render_generic_chart.py --input <normalized.json> --run <runId> [--out <dir>]
@@ -160,9 +161,15 @@ def draw_header(d, meta, subtitle_left, subtitle_right):
 def draw_footer(d, meta, note_right):
     d.line([140, 906, 1780, 906], fill=GRID, width=2)
 
+    # 页脚只写「数据是什么」，不写「什么时候导入的」：
+    # 导入时间是处理过程的时间戳，写进画面会让同一份数据在不同日期出片结果不同，
+    # 破坏「同输入 → 同字节」的确定性。改用源文件 SHA-256 前 12 位做指纹，
+    # 既能指认具体是哪一份文件，又与出片时间无关。
     fn = meta.get("fileName") or "（未记录文件名）"
-    imported = (meta.get("importedAt") or "")[:10]
-    left = "数据：用户导入 · {} · 导入于 {}".format(fn, imported or "（未知）")
+    sha = (meta.get("sourceSha256") or "")[:12]
+    left = "数据：用户导入 · {}".format(fn)
+    if sha:
+        left = "{} · sha256:{}".format(left, sha)
     txt(d, (140, 926), fit_text(d, left, 24, 1160), 24, MUTED)
 
     unit = meta.get("unit") or "未声明"
@@ -415,7 +422,7 @@ def draw_cs_frame(st, t):
     L, R, T, B = st["L"], st["R"], st["T"], st["B"]
 
     n = len(rows)
-    sort_note = "按 value 降序" if meta.get("sortedByValue") else "按文件顺序"
+    sort_note = "按数值降序" if meta.get("sortedByValue") else "按文件顺序"
     subtitle = "共 {} 项".format(n)
     if meta.get("asOf"):
         subtitle += " · 时点 {}".format(meta["asOf"])

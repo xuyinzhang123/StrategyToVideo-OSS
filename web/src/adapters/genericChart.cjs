@@ -13,13 +13,16 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
+const crypto = require('node:crypto');
 const { spawnSync } = require('node:child_process');
 const { PROJECT_ROOT } = require('../paths');
+const { parseCsv } = require('../csv');
 
 const RENDER_SCRIPT = path.join(PROJECT_ROOT, 'engine_next', 'render_generic_chart.py');
 
 const STEPS = [
   '读取并复核归一化数据',
+  '对照原始 CSV 核对每个数字的行号',
   '写入运行目录输入',
   '渲染视频（通用图表）',
 ];
@@ -33,6 +36,114 @@ function resolvePython() {
   return null;
 }
 
+function sha256OfFile(p) {
+  return crypto.createHash('sha256').update(fs.readFileSync(p)).digest('hex');
+}
+
+// 逐点回读 source.csv：按行号取回原始记录，确认「画面上的这个数」确实来自这一行。
+// 任何一处对不上即整体失败——宁可不交付，也不交付一个无法回溯的视频。
+function buildTrace(model, sourceText, sourceMeta) {
+  const parsed = parseCsv(sourceText);
+  if (!parsed.ok) {
+    return { ok: false, message: `原始 CSV 留档无法解析（${parsed.code}），无法核对溯源` };
+  }
+  const byLine = new Map();
+  for (const rec of parsed.records) byLine.set(rec.line, rec);
+
+  const header = parsed.records[0];
+  if (!header) return { ok: false, message: '原始 CSV 留档没有表头，无法核对溯源' };
+  const colOf = (fieldName) => {
+    const name = (model.meta.mapping || {})[fieldName];
+    if (!name) return -1;
+    return header.fields.findIndex((f) => f.text.trim() === name);
+  };
+  const dateCol = colOf('date');
+  const valueCol = colOf('value');
+  const seriesCol = colOf('series');
+  const labelCol = colOf('label');
+  const groupCol = colOf('group');
+  const value2Col = colOf('value2');
+
+  const trace = [];
+  const problems = [];
+
+  const numMatches = (raw, value) => {
+    const t = String(raw == null ? '' : raw).trim();
+    if (t === '') return value === null || value === undefined;
+    const n = Number(t);
+    return Number.isFinite(n) && Math.abs(n - value) < 1e-9;
+  };
+
+  if (model.class === 'timeseries') {
+    for (const s of model.series || []) {
+      for (const p of s.points || []) {
+        const rec = byLine.get(p.line);
+        if (!rec) { problems.push(`序列「${s.name}」${p.date} 标注第 ${p.line} 行，但留档里没有这一行`); continue; }
+        const dOk = dateCol >= 0 && rec.fields[dateCol] && rec.fields[dateCol].text.trim() === p.date;
+        const vOk = valueCol >= 0 && rec.fields[valueCol] && numMatches(rec.fields[valueCol].text, p.value);
+        if (!dOk || !vOk) {
+          problems.push(`第 ${p.line} 行回读不一致（期望 ${p.date} / ${p.value}）`);
+          continue;
+        }
+        trace.push({
+          kind: 'point',
+          series: s.name,
+          date: p.date,
+          value: p.value,
+          sourceLine: p.line,
+          sourceText: clip(rec.fields.map((f) => f.text).join(',')),
+        });
+      }
+    }
+  } else {
+    for (const r of model.rows || []) {
+      const rec = byLine.get(r.line);
+      if (!rec) { problems.push(`「${r.label}」标注第 ${r.line} 行，但留档里没有这一行`); continue; }
+      const lOk = labelCol >= 0 && rec.fields[labelCol] && rec.fields[labelCol].text.trim() === r.label;
+      const vOk = valueCol >= 0 && rec.fields[valueCol] && numMatches(rec.fields[valueCol].text, r.value);
+      if (!lOk || !vOk) {
+        problems.push(`第 ${r.line} 行回读不一致（期望 ${r.label} / ${r.value}）`);
+        continue;
+      }
+      const item = {
+        kind: 'bar',
+        label: r.label,
+        value: r.value,
+        sourceLine: r.line,
+        sourceText: clip(rec.fields.map((f) => f.text).join(',')),
+      };
+      if (r.share !== undefined) item.share = r.share;
+      if (groupCol >= 0 && r.group !== undefined) item.group = r.group;
+      if (value2Col >= 0 && r.value2 !== undefined) item.value2 = r.value2;
+      trace.push(item);
+    }
+  }
+
+  if (problems.length) {
+    return { ok: false, message: `溯源核对失败（${problems.length} 处）：${problems.slice(0, 3).join('；')}` };
+  }
+
+  return {
+    ok: true,
+    data: {
+      source: sourceMeta,
+      mapping: model.meta.mapping || {},
+      trace,
+      verification: {
+        points: trace.length,
+        verified: trace.length,
+        ok: true,
+        method: '解析任务目录 source.csv，按行号回读并逐字段比对（日期/名称/数值）',
+      },
+    },
+  };
+}
+
+function clip(s, n) {
+  const t = String(s == null ? '' : s);
+  return t.length > (n || 160) ? t.slice(0, (n || 160) - 1) + '…' : t;
+}
+
 function makeAdapter(dataClass) {
   return {
     id: dataClass,
@@ -41,7 +152,7 @@ function makeAdapter(dataClass) {
     RENDER_SCRIPT,
 
     async execute(ctx) {
-      const { runId, taskDir, runCommand, onStep, logWrite } = ctx;
+      const { runId, taskId, taskDir, runCommand, onStep, logWrite } = ctx;
 
       // ---- 步骤 0：读取归一化模型 ----
       onStep(0, 'running');
@@ -58,8 +169,41 @@ function makeAdapter(dataClass) {
       }
       onStep(0, 'done');
 
-      // ---- 步骤 1：写入运行目录（产物与输入都可定位） ----
+      // ---- 步骤 1：溯源核对（每个数字 → source.csv 的具体行） ----
+      // 留档缺失即停止：没有原始文件的视频无法被追溯，不该交付。
       onStep(1, 'running');
+      const sourcePath = path.join(taskDir, 'source.csv');
+      if (!fs.existsSync(sourcePath)) {
+        throw {
+          code: 'E_SOURCE_MISSING',
+          message: '任务目录缺少原始 CSV 留档（source.csv），无法核对数字来源。请新建任务重试。',
+        };
+      }
+      const sourceBuf = fs.readFileSync(sourcePath);
+      const sourceSha = crypto.createHash('sha256').update(sourceBuf).digest('hex');
+      if (model.meta.sourceSha256 && model.meta.sourceSha256 !== sourceSha) {
+        throw {
+          code: 'E_TRACE_MISMATCH',
+          message: 'source.csv 的 SHA-256 与创建任务时记录的不一致（留档被改动过），已停止交付。',
+        };
+      }
+      const sourceMeta = {
+        fileName: model.meta.fileName || '',
+        archivedAs: 'source.csv',
+        sha256: sourceSha,
+        bytes: sourceBuf.length,
+        lines: sourceBuf.toString('utf8').split(/\r\n|\n|\r/).length,
+        importedAt: model.meta.importedAt || '',
+      };
+      const tr = buildTrace(model, sourceBuf.toString('utf8'), sourceMeta);
+      if (!tr.ok) {
+        throw { code: 'E_TRACE_FAILED', message: `${tr.message}（已停止交付，未生成可下载视频）` };
+      }
+      logWrite(`trace ok: ${tr.data.verification.verified} 个数据点全部定位到 source.csv 行号 sha256=${sourceSha.slice(0, 12)}`);
+      onStep(1, 'done');
+
+      // ---- 步骤 2：写入运行目录（产物与输入都可定位） ----
+      onStep(2, 'running');
       const runDir = path.join(ctx.OUTPUT_DIR, runId);
       const videoDir = path.join(runDir, '04_video');
       if (fs.existsSync(path.join(videoDir, 'video.mp4'))) {
@@ -70,13 +214,15 @@ function makeAdapter(dataClass) {
       const normalizedPath = path.join(inputDir, 'normalized.json');
       fs.writeFileSync(normalizedPath, JSON.stringify(model, null, 2), 'utf8');
       logWrite(`input normalized class=${model.class} rows=${model.meta.rowCount} -> ${normalizedPath}`);
-      onStep(1, 'done');
+      onStep(2, 'done');
 
-      // ---- 步骤 2：渲染 ----
-      onStep(2, 'running');
+      // ---- 步骤 3：渲染 ----
+      onStep(3, 'running');
       const python = resolvePython();
       if (!python) throw { code: 'E_PYTHON_MISSING', message: '未找到可用的 Python（python / python3），无法渲染视频' };
-      const r = await runCommand(python, [RENDER_SCRIPT, '--input', normalizedPath, '--run', runId]);
+      // 显式传 --out：不依赖渲染器默认的 <repo>/output/<runId>，
+      // 否则运行目录一旦被指定到别处（测试/临时目录），产物会写到与 ctx.OUTPUT_DIR 无关的地方。
+      const r = await runCommand(python, [RENDER_SCRIPT, '--input', normalizedPath, '--run', runId, '--out', videoDir]);
       const mp4 = path.join(videoDir, 'video.mp4');
       const reportPath = path.join(videoDir, 'render_report.json');
       if (r.code !== 0 || !fs.existsSync(mp4) || !fs.existsSync(reportPath)) {
@@ -107,12 +253,31 @@ function makeAdapter(dataClass) {
         throw { code: 'E_VERIFY_FAILED', message: '视频文件大小与渲染报告不一致，已停止交付' };
       }
       logWrite(`render ok: ${mp4} bytes=${R.outputBytes} frames=${R.frames} duration=${R.durationSec}s`);
-      onStep(2, 'done');
+      onStep(3, 'done');
 
-      // ---- 交付（所有数字都可回溯，见 traceability） ----
+      // ---- 交付（所有数字都可回溯，见 traceability.json） ----
       const derivations = model.class === 'cross_section' && model.meta.shareBasis === 'all-nonnegative'
         ? ['占比 = 该行 value ÷ 全部 value 合计']
         : [];
+      const videoSha = sha256OfFile(mp4);
+      const traceability = Object.assign({
+        taskId,
+        generatedAt: new Date().toISOString(),
+        derivations,
+        video: {
+          file: 'video.mp4',
+          sha256: videoSha,
+          bytes: R.outputBytes,
+          frames: R.frames,
+          fps: R.fps,
+          durationSec: R.durationSec,
+          width: R.width,
+          height: R.height,
+        },
+      }, tr.data);
+      fs.writeFileSync(path.join(taskDir, 'traceability.json'), JSON.stringify(traceability, null, 2), 'utf8');
+      logWrite(`video sha256=${videoSha}`);
+
       const result = {
         title: model.meta.title,
         dataClass: model.class,
@@ -129,16 +294,25 @@ function makeAdapter(dataClass) {
         video: {
           width: R.width, height: R.height, fps: R.fps,
           frames: R.frames, durationSec: R.durationSec,
+          sha256: videoSha,
+          bytes: R.outputBytes,
         },
+        source: {
+          fileName: sourceMeta.fileName,
+          archivedAs: sourceMeta.archivedAs,
+          sha256: sourceMeta.sha256,
+          bytes: sourceMeta.bytes,
+          lines: sourceMeta.lines,
+        },
+        trace: tr.data.verification,
         verification: {
-          script: 'engine_next/render_generic_chart.py（内含报告↔模型勾稽）',
+          script: 'engine_next/render_generic_chart.py（报告↔模型勾稽）+ source.csv 逐行回读',
           pass: true,
           fail: 0,
         },
         traceability: {
-          source: 'import.json / 01_input/normalized.json',
-          fileName: model.meta.fileName,
-          importedAt: model.meta.importedAt,
+          file: 'traceability.json',
+          sourceLines: sourceMeta.lines,
           mapping: model.meta.mapping,
           derivations,
         },

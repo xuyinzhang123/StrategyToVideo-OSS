@@ -189,6 +189,6 @@ if (failures.length) {
   for (const f of failures) console.log('  FAIL ' + f);
   process.exitCode = 1;
 } else {
-  notes.push('全部样例与规则单点符合 DATA_SPEC Draft 2。');
+  notes.push('全部样例与规则单点符合 DATA_SPEC Draft 3。');
   for (const n of notes) console.log('  ' + n);
 }

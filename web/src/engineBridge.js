@@ -203,6 +203,22 @@ function executeTask(taskId) {
   return { ok: true, runId: guard.runId };
 }
 
+// 删除任务的运行目录（output/web_<uuid>）。任务目录本身由 taskManager.deleteTask 负责。
+// 路径完全由 taskId 派生，并再次确认父目录就是 OUTPUT_DIR，杜绝越界删除。
+function deleteRunDir(taskId) {
+  if (!TM.isValidTaskId(taskId)) return { ok: false, code: 'E_TASK_ID_INVALID', message: '非法的任务 ID 格式' };
+  if (activeTaskId === taskId) {
+    return { ok: false, code: 'E_ALREADY_RUNNING', message: '任务正在执行，请等它结束后再删除' };
+  }
+  const dir = path.join(OUTPUT_DIR, runIdForTask(taskId));
+  if (path.dirname(dir) !== OUTPUT_DIR) {
+    return { ok: false, code: 'E_TASK_ID_INVALID', message: '运行目录越界，已拒绝' };
+  }
+  if (!fs.existsSync(dir)) return { ok: true, removed: false };
+  fs.rmSync(dir, { recursive: true, force: true });
+  return { ok: true, removed: !fs.existsSync(dir) };
+}
+
 module.exports = {
   runIdForTask,
   buildRequestFile,
@@ -211,6 +227,7 @@ module.exports = {
   executeTask,
   getActiveTaskId,
   setSpawnImpl,
+  deleteRunDir,
   ADAPTERS,
   UNIFIED,
   RUNS_DIR,
