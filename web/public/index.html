@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Strategy to Video</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <header class="site-header">
+    <h1>Strategy to Video</h1>
+    <p class="subtitle">投资策略可视化视频生成器</p>
+  </header>
+
+  <main class="container">
+    <section class="env-banner" id="env-banner">
+      <span class="env-label">环境</span>
+      <span id="env-server" class="env-pill">服务器：检测中…</span>
+      <span id="env-render" class="env-pill">渲染环境：检测中…</span>
+    </section>
+
+    <section class="panel">
+      <h2>选择策略</h2>
+      <div class="strategy-grid">
+        <button class="strategy-card" data-strategy="macd" type="button">
+          <span class="strategy-name">MACD 演示策略（模拟数据）</span>
+          <span class="strategy-desc">SIMULATED 模拟行情 · 长期持有 vs MACD 金叉死叉（视频 V1.2.2）</span>
+          <span class="strategy-tag tag-live">可生成视频</span>
+        </button>
+      </div>
+      <p class="hint" id="strategy-hint">请选择一个策略。</p>
+    </section>
+
+    <section class="panel">
+      <h2>策略参数 <span class="badge">Open Source V0.1 · 仅 MACD 演示 · 参数锁定</span></h2>
+      <div id="params-form" class="params-form">
+        <p class="reserved-note">请先在上方选择一个策略。</p>
+      </div>
+      <div class="actions">
+        <button id="create-btn" type="button" disabled>创建任务</button>
+      </div>
+      <div id="create-result" class="result" role="status" aria-live="polite"></div>
+    </section>
+
+    <section class="panel" id="workspace" hidden>
+      <h2>任务工作区 <span class="badge" id="ws-badge">—</span></h2>
+      <div id="ws-summary" class="task-summary"></div>
+      <div id="ws-actions" class="actions"></div>
+      <!-- 阶段 4A：只展示真实可观测阶段，不展示虚构百分比/进度条 -->
+      <div id="ws-progress" class="progress" hidden>
+        <div class="progress-status" id="ws-status-text">准备中…</div>
+        <ol class="progress-steps" id="ws-steps"></ol>
+      </div>
+      <div id="ws-video" class="video-wrap" hidden>
+        <video id="ws-video-el" controls preload="metadata"></video>
+        <a id="ws-download" class="download-link" download>下载 MP4</a>
+      </div>
+      <div id="ws-error" class="result bad" role="status" aria-live="polite" hidden></div>
+    </section>
+
+    <section class="panel">
+      <h2>查询任务</h2>
+      <div class="query-row">
+        <input id="query-id" type="text" placeholder="粘贴任务 ID（UUID）" autocomplete="off" />
+        <button id="query-btn" type="button">查询</button>
+      </div>
+      <div id="query-result" class="result" role="status" aria-live="polite"></div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <span>Open Source V0.1 · 本地 127.0.0.1 · 仅 MACD 演示模板可用 · 示例数据为模拟数据，不代表真实历史行情 · 失败任务请新建任务重试</span>
+  </footer>
+
+  <script src="/app.js"></script>
+</body>
+</html>

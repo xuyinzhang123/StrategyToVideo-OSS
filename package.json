@@ -1,0 +1,14 @@
+{
+  "name": "strategy-to-video-oss-v01",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Strategy to Video Open Source V0.1 — MACD 演示模板（SIMULATED 模拟数据）",
+  "license": "MIT",
+  "scripts": {
+    "start": "node web/server.js",
+    "gen:demo": "node tools/gen_demo_data.cjs"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

@@ -1,0 +1,8 @@
+# Strategy to Video · Open Source V0.1
+# 运行时依赖：由用户按 README.md 自行安装，本包不再随附任何二进制或 wheel。
+# 固定版本以保证渲染与验收结果可复现；请勿随意升级。
+# Python >= 3.11（Pillow 13.0.0 的 Requires-Python 要求）
+# 仅正式支持 Windows（字体与 imageio-ffmpeg 的 Windows 构建）
+
+Pillow==13.0.0
+imageio-ffmpeg==0.8.1

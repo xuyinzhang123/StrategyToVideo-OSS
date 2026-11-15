@@ -1,0 +1,13 @@
+{
+  "name": "strategy-to-video-web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "commonjs",
+  "description": "Strategy to Video · Open Source V0.1 本地网页（仅 MACD 演示策略）",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

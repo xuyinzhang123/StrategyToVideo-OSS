@@ -1,0 +1,26 @@
+{
+  "notice": "SIMULATED DEMO DATA — 本文件为确定性合成的模拟演示数据，不代表任何真实证券的历史行情，不可用于投资分析。",
+  "generatedBy": "tools/gen_demo_data.cjs",
+  "seed": 20261114,
+  "interval": {
+    "first": "2016-01-04",
+    "last": "2026-11-06",
+    "requestedStart": "2016-01-01",
+    "requestedEnd": "2026-11-06"
+  },
+  "tradingDays": 2830,
+  "cashDividendEvents": 11,
+  "priceModel": "deterministic LCG noise + dual sine cycles + capped daily return ±3.5%; no real market data",
+  "files": [
+    {
+      "file": "stock_daily.json",
+      "bytes": 545118,
+      "sha256": "3b86ead1bdebb31fad0996c03b7620e3f0161bc5261a8cf4403e2bd500231359"
+    },
+    {
+      "file": "dividend_calendar.json",
+      "bytes": 4022,
+      "sha256": "195a1dbb59c6de6b5e945aeff1e6495a114ae84b8d96397019df3d5a7447db7a"
+    }
+  ]
+}

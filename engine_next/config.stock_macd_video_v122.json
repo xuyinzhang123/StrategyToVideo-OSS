@@ -1,0 +1,296 @@
+{
+  "run_id": "demo_macd_simulated",
+  "source_run_id": "demo_macd_simulated",
+  "backtest_dir": "02_backtest_macd",
+  "engine": {
+    "output_dir": "output"
+  },
+  "video": {
+    "width": 1920,
+    "height": 1080,
+    "design_width": 1920,
+    "design_height": 1080,
+    "fps": 30,
+    "intro_frames": 84,
+    "main_frames": 1320,
+    "outro_frames": 180,
+    "fade": {
+      "intro_in": 12,
+      "intro_out": 14,
+      "outro_in": 9,
+      "outro_dip": 9
+    },
+    "encoder": {
+      "crf": 20,
+      "preset": "veryfast",
+      "pixel_format": "yuv420p",
+      "audio_bitrate": "96k",
+      "sample_rate": 44100,
+      "title": "Strategy to Video 开源演示 · MACD 金叉死叉 vs 长期持有（SIMULATED DATA）"
+    },
+    "colors": {
+      "bg": [
+        11,
+        18,
+        32
+      ],
+      "panel": [
+        18,
+        26,
+        43
+      ],
+      "panel2": [
+        26,
+        36,
+        57
+      ],
+      "grid": [
+        34,
+        48,
+        74
+      ],
+      "text": [
+        232,
+        238,
+        247
+      ],
+      "muted": [
+        154,
+        167,
+        190
+      ],
+      "faint": [
+        104,
+        118,
+        142
+      ],
+      "strategy": [
+        245,
+        196,
+        81
+      ],
+      "hold": [
+        91,
+        156,
+        245
+      ],
+      "down": [
+        62,
+        207,
+        142
+      ],
+      "up": [
+        239,
+        83,
+        80
+      ],
+      "gold": [
+        245,
+        196,
+        81
+      ],
+      "warn": [
+        239,
+        83,
+        80
+      ],
+      "extra": {
+        "legend_dash": [
+          120,
+          136,
+          160
+        ],
+        "info_bg": [
+          16,
+          24,
+          40
+        ],
+        "info_border": [
+          44,
+          62,
+          94
+        ],
+        "disclaimer": [
+          120,
+          132,
+          152
+        ],
+        "warn_bg": [
+          38,
+          22,
+          26
+        ],
+        "warn_text": [
+          240,
+          214,
+          214
+        ],
+        "marker_bg": [
+          18,
+          26,
+          43
+        ],
+        "bubble_bg": [
+          22,
+          32,
+          52
+        ],
+        "div_tick": [
+          122,
+          100,
+          52
+        ],
+        "stop_line": [
+          150,
+          66,
+          62
+        ],
+        "golden": [
+          62,
+          207,
+          142
+        ],
+        "death": [
+          239,
+          83,
+          80
+        ],
+        "dif": [
+          140,
+          198,
+          255
+        ],
+        "dea": [
+          255,
+          168,
+          96
+        ],
+        "hist_pos": [
+          239,
+          83,
+          80
+        ],
+        "hist_neg": [
+          62,
+          207,
+          142
+        ],
+        "zero_axis": [
+          70,
+          90,
+          124
+        ],
+        "halo": [
+          18,
+          26,
+          43
+        ]
+      }
+    },
+    "chart": {
+      "left": 130,
+      "right": 1800,
+      "main_top": 158,
+      "main_bottom": 636,
+      "sub_top": 696,
+      "sub_bottom": 896,
+      "year_tick_every": 2,
+      "header_height": 104,
+      "legend_y": 118,
+      "sub_header_y": 662,
+      "fee_line_y": 924,
+      "progress_y": 950,
+      "footer_y": 1026,
+      "occ_cell": 24,
+      "fade_window": 10,
+      "panel": {
+        "x1": 152,
+        "x2": 566,
+        "y1": 182,
+        "recent_event_days": 5
+      }
+    },
+    "fonts": {
+      "regular": "msyh.ttc",
+      "bold": "msyhbd.ttc",
+      "fallback": "simhei.ttf"
+    },
+    "copy": {
+      "header_title": "模拟演示标的：MACD 金叉买入、死叉卖出 vs 长期持有",
+      "header_sub": "SIMULATED 模拟未复权价格 · 100 股整数倍 · 含佣金、印花税、过户费与红利税",
+      "header_dates": "{start} → {end}",
+      "asset_title": "主图 · 账户总资产（元）· 完整区间",
+      "legend_strategy": "MACD 策略（金叉买、死叉卖）",
+      "legend_hold": "长期持有（首日建仓、末日卖出）",
+      "legend_trade": "● 成交在次日开盘",
+      "sub_title": "副图 · MACD(12,26,9)",
+      "sub_legend_dif": "DIF",
+      "sub_legend_dea": "DEA",
+      "sub_legend_hist": "柱（红正绿负）",
+      "sub_legend_cross": "○ 金叉/死叉",
+      "sub_note": "上下两图同一时间轴 · 同一交易日横向位置一致",
+      "info_title": "当日快照",
+      "info_labels": [
+        "日期",
+        "长期持有",
+        "MACD 策略",
+        "持仓状态"
+      ],
+      "fee_line": "累计成交 {done} 笔 · MACD 交易 {macdDone} 笔",
+      "axis_line": "横轴 {start} → {end} · 上下两图同步推进",
+      "footer_left": "数据：SIMULATED 模拟演示行情（非真实历史行情）· 由 tools/gen_demo_data.cjs 确定性生成",
+      "footer_right": "仅用于演示软件流程 · 不构成投资建议",
+      "status_hold": "持仓",
+      "status_flat": "空仓",
+      "intro_title": "MACD 金叉买入，死叉卖出",
+      "intro_sub": "{stock_name}（{stock_code}）· {start} 至 {end}",
+      "intro_tagline": "同样 10 万元本金：跟着 MACD 做波段，和买入后一直拿着，差多少？",
+      "intro_cards": [
+        [
+          "金叉买入",
+          "DIF 上穿 DEA（快线高于慢线），次日开盘买入"
+        ],
+        [
+          "死叉卖出",
+          "DIF 下穿 DEA，次日开盘卖出，空仓持币"
+        ],
+        [
+          "成本",
+          "佣金双向 0.03%，每笔最低 5 元"
+        ]
+      ],
+      "intro_method": "初始资金 ¥100,000 · 现金不允许为负 · 现金分红计入现金，不再投资",
+      "intro_scale": "{tradingDays} 个交易日 · {divCount} 次现金分红 · 区间内停牌 {suspendedDays} 天 · MACD(12,26,9)",
+      "intro_disclaimer": "本视频使用模拟数据，不代表任何真实历史行情，不预示未来收益，不构成投资建议",
+      "outro_top": "同样 10 万元 · {start} → {end} · 已扣除全部交易费用与红利税",
+      "outro_hold_label": "长期持有 · 买入后不动",
+      "outro_amount": "¥ {hold_final}",
+      "outro_hold_pct": "{hd_ret}",
+      "outro_hold_dd": "最大回撤 {hd_dd}",
+      "outro_macd_label": "MACD · 金叉买入、死叉卖出",
+      "outro_amount_macd": "¥ {macd_final}",
+      "outro_macd_pct": "{macd_ret}",
+      "outro_macd_dd": "最大回撤 {macd_dd}",
+      "outro_macd_trades": "{macdTrades} 笔成交（买 {macdBuys} / 卖 {macdSells}）",
+      "outro_gap": "两种策略期末差额（持有 − MACD）¥{gap} · 期末比值 {ratio} 倍",
+      "outro_notes_title": "口径与费用",
+      "outro_notes": [
+        "累计费用 ¥{total_fee}：佣金 ¥{comm} · 印花税 ¥{stamp} · 过户费 ¥{transfer} · 红利税 ¥{divtax}",
+        "{signals} 个信号对应 {macdTrades} 笔成交：信号当日收盘形成、实际按 T+1 开盘价成交；未执行的信号会单独标注",
+        "辅助对照：零手续费独立重算 MACD 期末 ¥{zf_final}"
+      ],
+      "outro_risk": "本视频使用模拟演示数据，不代表真实历史行情，不构成投资建议。",
+      "outro_footer": "金叉/死叉当日收盘判定，次日开盘价成交；仅在开盘=最高=最低=收盘且等于涨跌停价时判定当日无法成交",
+      "intro_tax": "卖出印花税 1‰（2023-08-28 起减半 0.5‰）· 过户费双向 0.02‰（2022-04-29 起 0.01‰）· 红利税按持股期限，短期持仓 20%"
+    },
+    "keyframes": [],
+    "timeline": {
+      "mode": "smooth-float",
+      "hold_frames": 30,
+      "smooth_days": 5.0,
+      "peak": 18.0,
+      "hold_cap": 0.42,
+      "note": "浮点位置 + 余弦核 + 密度自适应；消除 int 取整造成的 judder 与死停"
+    }
+  }
+}

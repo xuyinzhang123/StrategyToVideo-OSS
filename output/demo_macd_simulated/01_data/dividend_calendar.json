@@ -1,0 +1,135 @@
+{
+  "meta": {
+    "symbol": "601398",
+    "simulated": true,
+    "source": "SIMULATED · tools/gen_demo_data.cjs（非发行人公告）",
+    "disclaimer": "SIMULATED DEMO DATA — 本文件为确定性合成的模拟演示数据，不代表任何真实证券的历史行情，不可用于投资分析。",
+    "eventCount": 11
+  },
+  "events": [
+    {
+      "date": "2016-07-08",
+      "recordDate": "2016-07-07",
+      "payDate": "2016-07-13",
+      "cashPerShare": 0.18,
+      "shareRatio": 0,
+      "plan": "模拟分红 10派1.800元（含税）",
+      "fiscalYear": "2015年（模拟）",
+      "payDateSource": "SIMULATED",
+      "recordDateSource": "SIMULATED"
+    },
+    {
+      "date": "2017-07-10",
+      "recordDate": "2017-07-07",
+      "payDate": "2017-07-13",
+      "cashPerShare": 0.19,
+      "shareRatio": 0,
+      "plan": "模拟分红 10派1.900元（含税）",
+      "fiscalYear": "2016年（模拟）",
+      "payDateSource": "SIMULATED",
+      "recordDateSource": "SIMULATED"
+    },
+    {
+      "date": "2018-07-09",
+      "recordDate": "2018-07-06",
+      "payDate": "2018-07-12",
+      "cashPerShare": 0.2,
+      "shareRatio": 0,
+      "plan": "模拟分红 10派2.000元（含税）",
+      "fiscalYear": "2017年（模拟）",
+      "payDateSource": "SIMULATED",
+      "recordDateSource": "SIMULATED"
+    },
+    {
+      "date": "2019-07-08",
+      "recordDate": "2019-07-05",
+      "payDate": "2019-07-11",
+      "cashPerShare": 0.2,
+      "shareRatio": 0,
+      "plan": "模拟分红 10派2.000元（含税）",
+      "fiscalYear": "2018年（模拟）",
+      "payDateSource": "SIMULATED",
+      "recordDateSource": "SIMULATED"
+    },
+    {
+      "date": "2020-07-08",
+      "recordDate": "2020-07-07",
+      "payDate": "2020-07-13",
+      "cashPerShare": 0.21,
+      "shareRatio": 0,
+      "plan": "模拟分红 10派2.100元（含税）",
+      "fiscalYear": "2019年（模拟）",
+      "payDateSource": "SIMULATED",
+      "recordDateSource": "SIMULATED"
+    },
+    {
+      "date": "2021-07-08",
+      "recordDate": "2021-07-07",
+      "payDate": "2021-07-13",
+      "cashPerShare": 0.22,
+      "shareRatio": 0,
+      "plan": "模拟分红 10派2.200元（含税）",
+      "fiscalYear": "2020年（模拟）",
+      "payDateSource": "SIMULATED",
+      "recordDateSource": "SIMULATED"
+    },
+    {
+      "date": "2022-07-08",
+      "recordDate": "2022-07-07",
+      "payDate": "2022-07-13",
+      "cashPerShare": 0.23,
+      "shareRatio": 0,
+      "plan": "模拟分红 10派2.300元（含税）",
+      "fiscalYear": "2021年（模拟）",
+      "payDateSource": "SIMULATED",
+      "recordDateSource": "SIMULATED"
+    },
+    {
+      "date": "2023-07-10",
+      "recordDate": "2023-07-07",
+      "payDate": "2023-07-13",
+      "cashPerShare": 0.24,
+      "shareRatio": 0,
+      "plan": "模拟分红 10派2.400元（含税）",
+      "fiscalYear": "2022年（模拟）",
+      "payDateSource": "SIMULATED",
+      "recordDateSource": "SIMULATED"
+    },
+    {
+      "date": "2024-07-08",
+      "recordDate": "2024-07-05",
+      "payDate": "2024-07-11",
+      "cashPerShare": 0.24,
+      "shareRatio": 0,
+      "plan": "模拟分红 10派2.400元（含税）",
+      "fiscalYear": "2023年（模拟）",
+      "payDateSource": "SIMULATED",
+      "recordDateSource": "SIMULATED"
+    },
+    {
+      "date": "2025-07-08",
+      "recordDate": "2025-07-07",
+      "payDate": "2025-07-11",
+      "cashPerShare": 0.25,
+      "shareRatio": 0,
+      "plan": "模拟分红 10派2.500元（含税）",
+      "fiscalYear": "2024年（模拟）",
+      "payDateSource": "SIMULATED",
+      "recordDateSource": "SIMULATED"
+    },
+    {
+      "date": "2026-07-08",
+      "recordDate": "2026-07-07",
+      "payDate": "2026-07-13",
+      "cashPerShare": 0.26,
+      "shareRatio": 0,
+      "plan": "模拟分红 10派2.600元（含税）",
+      "fiscalYear": "2025年（模拟）",
+      "payDateSource": "SIMULATED",
+      "recordDateSource": "SIMULATED"
+    }
+  ],
+  "checks": {
+    "simulated": true
+  }
+}

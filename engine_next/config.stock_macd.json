@@ -1,0 +1,169 @@
+{
+  "run_id": "demo_macd_simulated",
+  "engine": {
+    "output_dir": "output"
+  },
+  "data": {
+    "symbol": {
+      "code": "601398",
+      "market": 1,
+      "name": "模拟演示标的（SIMULATED）",
+      "fullName": "Strategy to Video 开源演示用模拟标的（非真实证券）",
+      "board": "SH_MAIN",
+      "parValue": 1,
+      "note": "SIMULATED：code 沿用主板 6 位格式仅为复用内核的证券代码校验，不代表任何真实证券；价格与分红全部确定性合成。"
+    },
+    "calendar": {
+      "note": "SIMULATED 模拟交易日历（周一至周五工作日），由 tools/gen_demo_data.cjs 生成；非任何真实指数日历。"
+    },
+    "start": "2016-01-01",
+    "end": "2026-11-06",
+    "adjust": "none",
+    "maxSuspensionRatio": 0.002,
+    "securityStatus": {
+      "declared": "normal",
+      "declaredBasis": "SIMULATED 模拟标的，无风险警示",
+      "evidence": "SIMULATED 合成数据，不来自任何行情接口或公告",
+      "stPeriods": []
+    },
+    "notes": [
+      "SIMULATED 模拟未复权价格；股数与现金一律用该模拟价结算，不参与任何真实市场估值。",
+      "交易日历由 tools/gen_demo_data.cjs 确定性合成，仅用于判定停牌/缺失，不参与估值。",
+      "区间起点 2016-01-01 为模拟请求值，实际首日为区间内首个模拟交易日。"
+    ]
+  },
+  "support": {
+    "codeWhitelist": [
+      "^(600|601|603|605)[0-9]{3}$",
+      "^(000|001|002|003)[0-9]{3}$"
+    ],
+    "rejectCodePrefixes": [
+      "300",
+      "301",
+      "688",
+      "689",
+      "8",
+      "4",
+      "92",
+      "900",
+      "200"
+    ],
+    "rejectNamePatterns": [
+      "ST",
+      "\\*ST",
+      "退",
+      "S "
+    ],
+    "priceLimitPct": 0.1,
+    "supportedCorporateActions": [
+      "CASH_DIV",
+      "SHARE_DIV"
+    ],
+    "rejectedCorporateActions": [
+      "RIGHTS_ISSUE",
+      "SHARE_CONSOLIDATION",
+      "MERGER_SHARE_SWAP",
+      "SPIN_OFF",
+      "DELISTING"
+    ]
+  },
+  "costs": {
+    "commission": {
+      "rate": 0.0003,
+      "minPerOrder": 5,
+      "statutoryCapRate": 0.003,
+      "side": "both",
+      "source": "计价格〔2002〕97号《关于调整证券交易佣金收取标准的通知》（2002-05-01 起执行）：A 股佣金不得高于成交金额 3‰，每笔不足 5 元按 5 元收取。",
+      "note": "0.03%（万三）为假设的券商费率，落在法定上限 3‰ 之内；最低 5 元/笔为法定下限。"
+    },
+    "stampDuty": [
+      {
+        "effectiveFrom": "2008-09-19",
+        "effectiveTo": "2023-08-25",
+        "rate": 0.001,
+        "side": "sell",
+        "source": "财税明电〔2008〕2号：自 2008-09-19 起对出让方按 1‰ 单边征收。"
+      },
+      {
+        "effectiveFrom": "2023-08-28",
+        "effectiveTo": null,
+        "rate": 0.0005,
+        "side": "sell",
+        "source": "财政部 税务总局公告 2023 年第 39 号：自 2023-08-28 起证券交易印花税减半征收（1‰→0.5‰）。"
+      }
+    ],
+    "transferFee": [
+      {
+        "effectiveFrom": "2015-08-01",
+        "effectiveTo": "2022-04-28",
+        "rate": 2e-05,
+        "basis": "amount",
+        "side": "both",
+        "source": "中国结算《关于调整 A 股交易过户费收费标准有关事项的通知》（2015-07-09 发布，2015-08-01 起）：沪深 A 股统一按成交金额 0.02‰ 双向收取。"
+      },
+      {
+        "effectiveFrom": "2022-04-29",
+        "effectiveTo": null,
+        "rate": 1e-05,
+        "basis": "amount",
+        "side": "both",
+        "source": "中国结算《关于降低股票交易过户费收费标准的通知》（2022-04-28 发布，2022-04-29 起）：沪深 A 股按成交金额 0.01‰ 双向收取。"
+      }
+    ],
+    "dividendTax": {
+      "effectiveFrom": "2015-09-08",
+      "withholdAt": "sell",
+      "brackets": [
+        {
+          "maxHoldingDays": 30,
+          "includeRatio": 1,
+          "rate": 0.2,
+          "label": "持股 1 个月以内（含 1 个月）：全额计入应纳税所得额，实际税负 20%"
+        },
+        {
+          "maxHoldingDays": 365,
+          "includeRatio": 0.5,
+          "rate": 0.1,
+          "label": "持股 1 个月以上至 1 年（含 1 年）：减按 50% 计入，实际税负 10%"
+        },
+        {
+          "maxHoldingDays": null,
+          "includeRatio": 0,
+          "rate": 0,
+          "label": "持股超过 1 年：暂免征收"
+        }
+      ],
+      "source": "财税〔2015〕101号（2015-09-08 起施行）：派发时对持股 1 年以内暂不扣缴，转让时按持股期限计算应纳税额；持股期限定义见财税〔2012〕85号。",
+      "note": "持股期限 = 取得之日至转让交割前一日的持有时间。隔夜策略每笔持有 1 个交易日 → 20%；长期持有至末日 → 超过 1 年 → 0%。"
+    }
+  },
+  "backtest": {
+    "initialCapital": 100000,
+    "lotSize": 100,
+    "tradingDaysPerYear": 244,
+    "valuation": "close",
+    "settlement": "T+1",
+    "dividendCashDate": "payDate",
+    "dividendRule": {
+      "entitlement": "recordDate（股权登记日收盘持股）",
+      "receivable": "exDate（除息日起计入总资产，避免除息日至到账日之间的虚假回撤）",
+      "cash": "payDate（发行人公告的 A 股派息日，未到账前不得用于买入）",
+      "tax": "sell（卖出时按持股期限补扣，与到账时点解耦）"
+    },
+    "suspension": {
+      "mode": "carry_and_defer",
+      "note": "停牌日不成交、持仓按前有效收盘估值；原定于该日的买入/卖出顺延至下一个有行情交易日，逐条记录。"
+    },
+    "fillAssumption": {
+      "mode": "close_buy_open_sell",
+      "sealedLimitBlocks": true,
+      "note": "仅在「开盘=最高=最低=收盘」且该价等于涨停价/跌停价（全天封板）时判定当日无法成交；其余情形一律按开盘价/收盘价成交并记录 T_LIMIT_TOUCH 标记。日线无法证明实际成交概率，故不把「触及」等同于「必然无法成交」。"
+    }
+  },
+  "macd": {
+    "fast": 12,
+    "slow": 26,
+    "signal": 9,
+    "execution": "nextOpen"
+  }
+}

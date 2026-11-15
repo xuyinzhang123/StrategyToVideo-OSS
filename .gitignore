@@ -1,0 +1,16 @@
+# Node / Python 运行产物
+node_modules/
+__pycache__/
+*.pyc
+
+# 按 requirements.txt 安装后生成的依赖目录（由用户在本机生成，不随包分发）
+deps/
+
+# 网页任务状态与产物（示例 run 与模拟数据保留，随包提供）
+web/tasks/
+output/web_*/
+output/*/04_video/frames/
+
+# 系统文件
+.DS_Store
+Thumbs.db
