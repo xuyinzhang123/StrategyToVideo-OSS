@@ -131,6 +131,15 @@ def blend(c1, c2, a):
     return tuple(int(round(c1[i] + (c2[i] - c1[i]) * a)) for i in range(3))
 
 
+def fit_text(d, s, size, max_w, suffix="…"):
+    """按可用像素宽度截断，避免用户填的长文件名/来源说明溢出画面。"""
+    if d.textlength(s, font=font(size)) <= max_w:
+        return s
+    while s and d.textlength(s + suffix, font=font(size)) > max_w:
+        s = s[:-1]
+    return (s + suffix) if s else ""
+
+
 # ---------------- 公共版式 ----------------
 
 def draw_header(d, meta, subtitle_left, subtitle_right):
@@ -154,7 +163,7 @@ def draw_footer(d, meta, note_right):
     fn = meta.get("fileName") or "（未记录文件名）"
     imported = (meta.get("importedAt") or "")[:10]
     left = "数据：用户导入 · {} · 导入于 {}".format(fn, imported or "（未知）")
-    txt(d, (140, 926), left, 24, MUTED)
+    txt(d, (140, 926), fit_text(d, left, 24, 1160), 24, MUTED)
 
     unit = meta.get("unit") or "未声明"
     right = "单位：{}".format(unit)
@@ -162,14 +171,24 @@ def draw_footer(d, meta, note_right):
         right = right + " · " + note_right
     txt(d, (1780, 926), right, 24, MUTED, anchor="ra")
 
+    # 来源说明（表单里「数据来源说明」承诺写进页脚，不能只存进 meta 不显示）
+    y = 962
+    src = (meta.get("sourceNote") or "").strip()
+    if src:
+        txt(d, (140, y), fit_text(d, "来源：{}".format(src), 22, 1630), 22, MUTED)
+        y += 34
+
     ws = meta.get("warnings") or []
     if ws:
         msg = "数据提示（{} 项）：{}".format(len(ws), "；".join(w.get("message", w.get("code", "")) for w in ws[:2]))
         if len(msg) > 96:
             msg = msg[:95] + "…"
-        txt(d, (140, 962), msg, 22, WARN)
+        txt(d, (140, y), msg, 22, WARN)
+        y += 34
 
-    txt(d, (140, 1014), "本视频由 StrategyToVideo 在本地生成 · 全部数字来自用户导入的 CSV · 不构成投资建议",
+    # 免责声明必须完整可见：多一行时上移，但不超过 1030（再低会被画面下边缘裁掉）
+    dy = 1014 if y <= 996 else min(1030, y + 6)
+    txt(d, (140, dy), "本视频由 StrategyToVideo 在本地生成 · 全部数字来自用户导入的 CSV · 不构成投资建议",
         22, FAINT)
 
 
@@ -290,12 +309,14 @@ def draw_ts_frame(st, t):
 
     # X 轴标签（最多 7 个；与末点过近时丢弃，避免两个日期挤在一起）
     step = max(1, int(math.ceil(n / 7.0)))
+    dw = d.textlength(dates[0], font=font(22))
     last_x = -1e9
     for i in range(0, n, step):
         x = st["x_of"](i)
         txt(d, (x, B + 16), dates[i], 22, MUTED, anchor="ma")
         last_x = x
-    if (n - 1) % step != 0 and st["x_of"](n - 1) - last_x > 120:
+    # 阈值必须按实际字宽算：日期标签是居中对齐的，间距小于「字宽 + 余量」就会叠字
+    if (n - 1) % step != 0 and st["x_of"](n - 1) - last_x > dw + 18:
         txt(d, (R, B + 16), dates[-1], 22, MUTED, anchor="ma")
 
     # 图例（顶部一行）
