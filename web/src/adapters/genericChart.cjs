@@ -16,7 +16,7 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const { spawnSync } = require('node:child_process');
 const { PROJECT_ROOT } = require('../paths');
-const { parseCsv } = require('../csv');
+const { parseCsv, countTextLines, countDataRecords } = require('../csv');
 
 const RENDER_SCRIPT = path.join(PROJECT_ROOT, 'engine_next', 'render_generic_chart.py');
 
@@ -192,7 +192,8 @@ function makeAdapter(dataClass) {
         archivedAs: 'source.csv',
         sha256: sourceSha,
         bytes: sourceBuf.length,
-        lines: sourceBuf.toString('utf8').split(/\r\n|\n|\r/).length,
+        lines: countTextLines(sourceBuf.toString('utf8')),
+        dataLines: countDataRecords(sourceBuf.toString('utf8')),
         importedAt: model.meta.importedAt || '',
       };
       const tr = buildTrace(model, sourceBuf.toString('utf8'), sourceMeta);
@@ -303,6 +304,7 @@ function makeAdapter(dataClass) {
           sha256: sourceMeta.sha256,
           bytes: sourceMeta.bytes,
           lines: sourceMeta.lines,
+          dataLines: sourceMeta.dataLines,
         },
         trace: tr.data.verification,
         verification: {

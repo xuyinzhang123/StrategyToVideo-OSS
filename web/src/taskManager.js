@@ -18,6 +18,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
+const { countTextLines, countDataRecords } = require('./csv');
 
 // 与 server.js 同级的 web 目录：<root>/web
 const WEB_DIR = path.resolve(__dirname, '..');
@@ -109,6 +110,9 @@ function setFailed(taskId, info) {
     hint: info.hint || '请新建任务重试',
   };
   if (Array.isArray(info.missing) && info.missing.length) error.missing = info.missing;
+  // 验收类失败：把 PASS/FAIL 计数与逐条失败项一起落盘，避免用户只看到「验收未通过」
+  if (info.acceptance) error.acceptance = info.acceptance;
+  if (Array.isArray(info.failures) && info.failures.length) error.failures = info.failures.slice(0, 12);
   return updateStatus(taskId, {
     status: 'failed',
     finishedAt: new Date().toISOString(),
@@ -172,9 +176,30 @@ function createTask(normalized) {
     const srcText = typeof normalized.sourceText === 'string' ? normalized.sourceText : '';
     const srcBuf = Buffer.from(srcText, 'utf8');
     const sha256 = crypto.createHash('sha256').update(srcBuf).digest('hex');
-    const sourceLines = srcText.length === 0 ? 0 : srcText.split(/\r\n|\n|\r/).length;
+    // 文本行数（含表头、不含末尾换行导致的多余空行）与实际数据记录数分开记，
+    // 后者直接用创建任务时已校验出的 rowCount，避免再解析一次原文产生口径漂移。
+    const sourceLines = countTextLines(srcText);
+    const modelRowCount = normalized.importModel && normalized.importModel.meta
+      ? normalized.importModel.meta.rowCount : undefined;
+    const sourceDataLines = Number.isInteger(modelRowCount)
+      ? modelRowCount : countDataRecords(srcText);
 
     fs.writeFileSync(path.join(dir, 'source.csv'), srcBuf);
+
+    // C 类可选分红表：独立留档为 dividend.csv，与 source.csv 同源留档语义（可复核、不篡改）。
+    let dividend = null;
+    const divText = typeof normalized.dividendSourceText === 'string' ? normalized.dividendSourceText : '';
+    if (divText) {
+      const divBuf = Buffer.from(divText, 'utf8');
+      const divSha = crypto.createHash('sha256').update(divBuf).digest('hex');
+      fs.writeFileSync(path.join(dir, 'dividend.csv'), divBuf);
+      dividend = {
+        fileName: 'dividend.csv', archivedAs: 'dividend.csv',
+        sha256: divSha, bytes: divBuf.length,
+        lines: countTextLines(divText),
+        dataLines: countDataRecords(divText),
+      };
+    }
 
     // 指纹写进归一化模型：渲染器把它打在页脚，成片与源文件从此可互相指认
     const importModel = JSON.parse(JSON.stringify(normalized.importModel));
@@ -182,6 +207,8 @@ function createTask(normalized) {
       sourceSha256: sha256,
       sourceBytes: srcBuf.length,
       sourceLines,
+      sourceDataLines,
+      dividendSha256: dividend ? dividend.sha256 : null,
     });
 
     const source = {
@@ -190,6 +217,7 @@ function createTask(normalized) {
       sha256,
       bytes: srcBuf.length,
       lines: sourceLines,
+      dataLines: sourceDataLines,
       importedAt: normalized.importModel.meta.importedAt,
     };
 
@@ -205,6 +233,7 @@ function createTask(normalized) {
       mapping: normalized.mapping,
       warnings: normalized.warnings,
       source,
+      dividend,
       mode: 'plan-only',
     };
     const status = {
@@ -218,6 +247,7 @@ function createTask(normalized) {
       updatedAt: now,
       warnings: normalized.warnings,
       source,
+      dividend,
       note: '任务已创建（计划态），请点击「确认并生成视频」显式执行。',
       result: null,
       error: null,

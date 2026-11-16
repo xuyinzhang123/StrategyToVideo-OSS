@@ -30,6 +30,7 @@
 
   // 用户 CSV 通道（V0.2 预览）：文件内容只在浏览器内存里，不落盘、不上传云端
   var csvState = { text: null, name: '', headers: [] };
+  var divState = { text: null, name: '' }; // C 类可选分红表原文（只在内存里）
   var paramsBadge = document.getElementById('params-badge');
 
   // 各策略表单元数据（默认值来自已验证 sealed 配置）
@@ -73,6 +74,13 @@
       dataClass: 'cross_section',
       executable: true,
       badge: 'V0.2 预览 · 用户 CSV · 条形'
+    },
+    stock_ohlc: {
+      name: '股票日线（自己的 CSV）',
+      userCsv: true,
+      dataClass: 'stock_ohlc',
+      executable: true,
+      badge: 'V0.2 · 用户 CSV · 股票日线 · MACD(12,26,9) → V1.2.3'
     }
   };
 
@@ -88,6 +96,16 @@
       { key: 'value', label: '数值（必填）', alias: ['value', '数值', '值', '金额', '数量', '指标值'] },
       { key: 'group', label: '分组（可空）', alias: ['group', '分组', '组别', '类别'] },
       { key: 'value2', label: '对照值（可空）', alias: ['value2', '对照', '上期', '对比值', '第二数值'] }
+    ],
+    // 股票日线：open/high/low/close 必须映射；volume/amount 可省略（内核不依赖 amount）
+    stock_ohlc: [
+      { key: 'date', label: '日期（必填）', alias: ['date', '日期', '时间', '交易日'] },
+      { key: 'open', label: '开盘价（必填）', alias: ['open', '开盘', '开盘价'] },
+      { key: 'high', label: '最高价（必填）', alias: ['high', '最高', '最高价'] },
+      { key: 'low', label: '最低价（必填）', alias: ['low', '最低', '最低价'] },
+      { key: 'close', label: '收盘价（必填）', alias: ['close', '收盘', '收盘价'] },
+      { key: 'volume', label: '成交量（可空）', alias: ['volume', 'vol', '成交量', '量'] },
+      { key: 'amount', label: '成交额（可空）', alias: ['amount', 'turnover', '成交额', '成交金额'] }
     ]
   };
 
@@ -206,47 +224,116 @@
 
   function buildCsvForm(strategy) {
     var m = META[strategy];
+    var isStock = strategy === 'stock_ohlc';
     csvState = { text: null, name: '', headers: [], encodingBad: false };
+    divState = { text: null, name: '' };
     if (paramsBadge) paramsBadge.textContent = m.badge || 'V0.2 预览 · 用户 CSV';
     paramsForm.innerHTML = '';
-    paramsForm.appendChild(el('<p class="field-note">选择一份你自己的 CSV。数值会被原样画进视频，'
-      + '工具不推断收益率、同比等任何统计量。列名不固定——下面把文件里的列名映射到字段即可。</p>'));
+    paramsForm.appendChild(el('<p class="field-note">' + (isStock
+      ? '选择一份你自己的股票日线 CSV。工具只做「MACD 金叉买入 / 死叉卖出」回测与出片，'
+        + '不推断任何行情、不补缺失交易日、不把缺行当成停牌。'
+      : '选择一份你自己的 CSV。数值会被原样画进视频，'
+        + '工具不推断收益率、同比等任何统计量。列名不固定——下面把文件里的列名映射到字段即可。') + '</p>'));
 
     paramsForm.appendChild(el(
-      '<div class="field field-wide"><label>CSV 文件（≤ 2 MiB · UTF-8 · 逗号分隔）</label>' +
+      '<div class="field field-wide"><label>' + (isStock ? '日线 CSV' : 'CSV 文件')
+      + '（≤ 2 MiB · UTF-8 · 逗号分隔）</label>' +
       '<div class="file-row"><input type="file" id="f-csv" accept=".csv,text/csv,text/plain" />' +
       '<button type="button" id="f-csv-reset" class="ghost-btn" disabled>重新选择</button></div>' +
       '<span class="field-hint">首行必须是表头。文件只在本机读取，不上传云端；创建任务后原文件会留档在任务目录里，供日后核对。</span></div>'
     ));
-    paramsForm.appendChild(els(
-      '<div class="field"><label>视频标题</label>' +
-      '<input type="text" id="f-title" maxlength="80" placeholder="例如：月度产能利用率" /></div>' +
-      '<div class="field"><label>单位（可空）</label>' +
-      '<input type="text" id="f-unit" maxlength="16" placeholder="例如：% 或 元" /></div>'
-    ));
-    if (strategy === 'cross_section') {
-      paramsForm.appendChild(el('<div class="field"><label>数据时点（可空）</label><input type="date" id="f-asof" /></div>'));
+
+    if (isStock) {
+      // 证券信息：内核按 10% 算涨跌停并判定一字板，不知道代码就无法保证结果可信，
+      // 所以代码必填；板块限制与后端 support_guard 同源，前端只做同款提示。
+      paramsForm.appendChild(els(
+        '<div class="field"><label>证券代码（必填 · 6 位）</label>' +
+        '<input type="text" id="f-symbol" maxlength="6" inputmode="numeric" autocomplete="off" placeholder="例如 600000" />' +
+        '<span class="field-hint">仅沪深主板：600/601/603/605、000/001/002/003。创业板 300/301、科创板 688、北交所与 B 股会直接报错。</span></div>' +
+        '<div class="field"><label>证券名称（可空）</label>' +
+        '<input type="text" id="f-stockname" maxlength="40" placeholder="例如 我的标的" /></div>'
+      ));
+      paramsForm.appendChild(els(
+        '<div class="field"><label>价格复权口径</label>' +
+        '<select id="f-adjust">' +
+        '<option value="none" selected>未复权（唯一支持）</option>' +
+        '<option value="qfq" disabled>前复权 qfq（暂不支持）</option>' +
+        '<option value="hfq" disabled>后复权 hfq（暂不支持）</option>' +
+        '</select><span class="field-hint">复权价是合成价：回测会把它当真实成交价算金额、佣金、印花税和整手股数，'
+        + '得到的金额与收益率不对应真实账户，所以本版只接受未复权行情 + 分红表。'
+        + '复权口径要等成交价口径单独验收通过后才放开。</span></div>' +
+        '<div class="field"><label>分红表（可空）</label>' +
+        '<div class="file-row"><input type="file" id="f-div" accept=".csv,text/csv,text/plain" /></div>' +
+        '<span class="field-hint">列：ex_date,record_date,pay_date,cash_per_share[,share_ratio,plan]。三个日期不可缺省也不可推导；不传则除权跳空按普通下跌处理并在视频里标注。</span></div>'
+      ));
+      paramsForm.appendChild(el(
+        '<div class="field field-wide"><label>数据来源说明（可空，会写进视频页脚）</label>' +
+        '<input type="text" id="f-srcnote" maxlength="120" placeholder="例如：券商客户端导出 / 内部整理" /></div>'
+      ));
+      findEl('f-div').addEventListener('change', onDividendChosen);
+    } else {
+      paramsForm.appendChild(els(
+        '<div class="field"><label>视频标题</label>' +
+        '<input type="text" id="f-title" maxlength="80" placeholder="例如：月度产能利用率" /></div>' +
+        '<div class="field"><label>单位（可空）</label>' +
+        '<input type="text" id="f-unit" maxlength="16" placeholder="例如：% 或 元" /></div>'
+      ));
+      if (strategy === 'cross_section') {
+        paramsForm.appendChild(el('<div class="field"><label>数据时点（可空）</label><input type="date" id="f-asof" /></div>'));
+      }
+      paramsForm.appendChild(el(
+        '<div class="field field-wide"><label>数据来源说明（可空，会写进视频页脚）</label>' +
+        '<input type="text" id="f-srcnote" maxlength="120" placeholder="例如：内部测算 / 公开月报" /></div>'
+      ));
     }
-    paramsForm.appendChild(el(
-      '<div class="field field-wide"><label>数据来源说明（可空，会写进视频页脚）</label>' +
-      '<input type="text" id="f-srcnote" maxlength="120" placeholder="例如：内部测算 / 公开月报" /></div>'
-    ));
+
     paramsForm.appendChild(el('<p class="warn-box" id="csv-warn" hidden></p>'));
     paramsForm.appendChild(el('<div class="mapping-grid" id="map-grid" hidden><p class="mapping-title">列映射（文件里的列名 → 字段）</p><p class="map-status" id="map-status"></p></div>'));
     paramsForm.appendChild(el('<pre class="csv-preview" id="csv-preview" hidden></pre>'));
 
     findEl('f-csv').addEventListener('change', onCsvChosen);
     findEl('f-csv-reset').addEventListener('click', resetCsvChoice);
+    if (isStock) {
+      findEl('f-symbol').addEventListener('input', updateMappingState);
+      updateMappingState();
+    }
     createBtn.disabled = true;
     hint.textContent = '已选择：' + m.name + '。请先选择 CSV 文件。';
+  }
+
+  // 分红表：单独读一遍，只保留原文；真正的列校验在服务端（要带行号报错）
+  function onDividendChosen(ev) {
+    var file = ev.target.files && ev.target.files[0];
+    if (!file) { divState = { text: null, name: '' }; return; }
+    if (file.size > 2 * 1024 * 1024) {
+      divState = { text: null, name: '' };
+      ev.target.value = '';
+      showResult(createResult, false, '分红表 ' + (file.size / 1048576).toFixed(2) + ' MiB 超过 2 MiB 上限。');
+      return;
+    }
+    var reader = new FileReader();
+    reader.onload = function () {
+      var text = String(reader.result || '');
+      if (text.indexOf('\uFFFD') >= 0) {
+        divState = { text: null, name: '' };
+        showResult(createResult, false, '分红表不是 UTF-8 编码，请另存为 UTF-8 后重新选择。');
+        return;
+      }
+      divState = { text: text, name: file.name };
+      showResult(createResult, true, '已读取分红表 ' + file.name + '，将在创建任务时一并校验。');
+    };
+    reader.readAsText(file, 'utf-8');
   }
 
   // 「重新选择」：清掉文件与映射状态，但保留标题/单位/来源等已填内容，
   // 让用户不必因为选错一个文件就从头填一遍。
   function resetCsvChoice() {
     csvState = { text: null, name: '', headers: [], encodingBad: false };
+    divState = { text: null, name: '' };
     var file = findEl('f-csv');
     if (file) file.value = '';
+    var divFile = findEl('f-div');
+    if (divFile) divFile.value = '';
     var grid = findEl('map-grid');
     if (grid) { grid.hidden = true; grid.innerHTML = '<p class="mapping-title">列映射（文件里的列名 → 字段）</p>' + '<p class="map-status" id="map-status"></p>'; }
     var pre = findEl('csv-preview');
@@ -288,6 +375,15 @@
     return '';
   }
 
+  // 区分「文件表头里根本没有这类列」与「文件里有可识别的列但用户还没映射」。
+  // 用同一份 alias 表判断，保证前端提示与后端 resolveMapping 的判定一致。
+  function hasAliasColumn(fieldKey) {
+    var fields = CSV_FIELDS[selected] || [];
+    var field = fields.filter(function (f) { return f.key === fieldKey; })[0];
+    if (!field) return false;
+    return !!guessColumn(csvState.headers, field.alias);
+  }
+
   function buildMappingUI(strategy) {
     var grid = findEl('map-grid');
     if (!grid) return;
@@ -316,14 +412,18 @@
     var status = findEl('map-status');
     var selects = Array.prototype.slice.call(document.querySelectorAll('#map-grid select'));
     if (!selects.length) { if (status) status.textContent = ''; return; }
-    var missing = [];
+    var unmapped = [];  // 文件里有常用列名，但用户还没把它选给这个字段
+    var absent = [];    // 文件表头里找不到这类列名（也没有可自动识别的同义列）
     var used = {};
     var dup = [];
     selects.forEach(function (s) {
       var label = s.parentNode.querySelector('label').textContent.replace('（必填）', '').replace('（可空）', '');
       s.classList.remove('field-bad');
       if (!s.value) {
-        if (s.getAttribute('data-required') === '1') { missing.push(label); s.classList.add('field-bad'); }
+        if (s.getAttribute('data-required') === '1') {
+          (hasAliasColumn(s.getAttribute('data-field')) ? unmapped : absent).push(label);
+          s.classList.add('field-bad');
+        }
         return;
       }
       if (used[s.value]) {
@@ -334,23 +434,47 @@
       }
     });
     var extra = csvState.headers.filter(function (h) { return !used[h]; });
+    var stockErr = selected === 'stock_ohlc' ? stockMetaError() : '';
 
     var msgs = [];
     if (csvState.encodingBad) {
       msgs.push('文件编码不是 UTF-8，已暂停创建（见上方提示）。');
-    } else if (missing.length) {
-      msgs.push('还没选：' + missing.join('、') + '。选中后才能创建任务。');
-    } else if (dup.length) {
-      msgs.push(dup.join('；') + '。一列只能当一个字段用。');
     } else {
-      msgs.push('映射完整，可以创建任务。');
-      if (extra.length) msgs.push('未使用的列会被忽略：' + extra.join('、'));
+      if (absent.length) {
+        msgs.push('文件表头里没有识别到：' + absent.join('、') + '。请检查导出的列是否齐全；'
+          + '如果用了别的列名，也可以直接在上方映射里选它。');
+      }
+      if (unmapped.length) {
+        msgs.push('文件里有对应列但还没映射：' + unmapped.join('、') + '。请在上方为它选中一列。');
+      }
+      if (dup.length) {
+        msgs.push(dup.join('；') + '。一列只能当一个字段用。');
+      }
+      if (!absent.length && !unmapped.length && !dup.length) {
+        msgs.push('映射完整，可以创建任务。');
+        if (extra.length) msgs.push('未使用的列会被忽略：' + extra.join('、'));
+      }
     }
+    if (stockErr) msgs.push(stockErr);
     if (status) {
       status.textContent = msgs.join(' ');
-      status.className = 'map-status ' + (missing.length || dup.length || csvState.encodingBad ? 'bad' : 'ok');
+      status.className = 'map-status '
+        + (absent.length || unmapped.length || dup.length || csvState.encodingBad || stockErr ? 'bad' : 'ok');
     }
-    createBtn.disabled = !csvState.text || !!csvState.encodingBad || missing.length > 0 || dup.length > 0;
+    createBtn.disabled = !csvState.text || !!csvState.encodingBad
+      || absent.length > 0 || unmapped.length > 0 || dup.length > 0 || !!stockErr;
+  }
+
+  // 股票日线的前置元数据：代码必填且必须是 6 位数字。板块/复权/分红的真实校验在服务端，
+  // 这里只拦「一眼就知道不完整」的输入，免得多跑一次请求。
+  function stockMetaError() {
+    var sym = findEl('f-symbol');
+    if (!sym) return '';
+    var v = String(sym.value || '').trim();
+    sym.classList.remove('field-bad');
+    if (!v) { sym.classList.add('field-bad'); return '请填写 6 位证券代码（内核要用它算涨跌停）。'; }
+    if (!/^\d{6}$/.test(v)) { sym.classList.add('field-bad'); return '证券代码必须是 6 位数字。'; }
+    return '';
   }
 
   function onCsvChosen(ev) {
@@ -444,6 +568,19 @@
         if (s.value) mapping[s.getAttribute('data-field')] = s.value;
       });
       if (Object.keys(mapping).length) req.mapping = mapping;
+
+      // 股票日线：代码 / 名称 / 复权口径 / 可选分红表
+      if (selected === 'stock_ohlc') {
+        var symEl = findEl('f-symbol');
+        var symbol = String(symEl && symEl.value || '').trim();
+        if (!/^\d{6}$/.test(symbol)) throw new Error('请填写 6 位证券代码');
+        req.symbol = symbol;
+        var nameEl = findEl('f-stockname');
+        if (nameEl && nameEl.value.trim()) req.name = nameEl.value.trim();
+        var adjEl = findEl('f-adjust');
+        req.adjust = adjEl ? adjEl.value : 'none';
+        if (divState.text) req.dividendCsvText = divState.text;
+      }
       return req;
     }
     var req2 = {
@@ -534,15 +671,26 @@
 
     if (task.dataClass) {
       // 用户 CSV：没有本金/区间，展示数据类别、标题、来源文件指纹、行数与数据提示
-      var clsName = task.dataClass === 'timeseries' ? '通用时间序列' : '横向对比';
+      var clsNames = { timeseries: '通用时间序列', cross_section: '横向对比', stock_ohlc: '股票日线（USER_IMPORT）' };
+      var clsName = clsNames[task.dataClass] || task.dataClass;
       var html = '<div><b>任务 ID</b>：' + task.taskId + '</div>'
         + '<div><b>数据类别</b>：' + clsName + '</div>'
-        + '<div><b>标题</b>：' + escapeHtml(task.title || '（未命名）') + '</div>'
+        + '<div><b>' + (task.dataClass === 'stock_ohlc' ? '证券' : '标题') + '</b>：'
+        + escapeHtml(task.title || '（未命名）') + '</div>'
         + '<div><b>状态</b>：' + task.status + '</div>';
       if (task.source) {
         html += '<div><b>源文件</b>：' + escapeHtml(task.source.fileName || '（未命名）')
-          + ' · ' + task.source.lines + ' 行 · ' + task.source.bytes + ' 字节'
+          + ' · 文本 ' + task.source.lines + ' 行（含表头'
+          + (task.source.dataLines != null ? '，' + task.source.dataLines + ' 条数据记录' : '') + '）'
+          + ' · ' + task.source.bytes + ' 字节'
           + ' · sha256:' + String(task.source.sha256 || '').slice(0, 12) + '…</div>';
+      }
+      if (task.dividend) {
+        html += '<div><b>分红表</b>：' + escapeHtml(task.dividend.fileName || 'dividend.csv')
+          + ' · 文本 ' + task.dividend.lines + ' 行（含表头'
+          + (task.dividend.dataLines != null ? '，' + task.dividend.dataLines + ' 条数据记录' : '') + '）'
+          + ' · sha256:'
+          + String(task.dividend.sha256 || '').slice(0, 12) + '…</div>';
       }
       if (task.warnings && task.warnings.length) {
         html += '<div><b>数据提示</b>：' + task.warnings.map(function (w) {
@@ -551,6 +699,13 @@
       }
       if (task.result) {
         if (task.result.rowCount != null) html += '<div><b>数据行数</b>：' + task.result.rowCount + '</div>';
+        if (task.result.source && task.result.source.kind === 'USER_IMPORT') {
+          var src = task.result.source;
+          html += '<div><b>来源</b>：USER_IMPORT · ' + escapeHtml(src.fileName || '')
+            + ' · 复权口径 ' + escapeHtml(src.adjust || 'none')
+            + ' · ' + (src.hasDividends ? ('现金分红 ' + src.dividendCount + ' 次') : '未含分红')
+            + ' · 日历缺口 ' + ((src.calendarGaps || []).length) + ' 处</div>';
+        }
         if (task.result.trace) {
           html += '<div><b>溯源</b>：' + task.result.trace.verified + ' / ' + task.result.trace.points
             + ' 个数据点已回读核对到 source.csv 的具体行号</div>';
@@ -563,6 +718,10 @@
             html += '<div><b>视频指纹</b>：sha256:' + task.result.video.sha256.slice(0, 12) + '…'
               + '（同一份数据重复出片应完全一致）</div>';
           }
+        }
+        if (task.result.verification && task.result.verification.pass != null) {
+          html += '<div><b>独立验收</b>：' + escapeHtml(task.result.verification.script || '')
+            + ' · PASS ' + task.result.verification.pass + ' / FAIL ' + task.result.verification.fail + '</div>';
         }
       }
       wsSummary.innerHTML = html;
@@ -580,6 +739,12 @@
       var msg = '执行失败（' + task.error.code + '）：' + task.error.message;
       if (task.error.missing && task.error.missing.length) {
         msg += '\n缺少文件：' + task.error.missing.join('、');
+      }
+      if (task.error.failures && task.error.failures.length) {
+        msg += '\n未通过的检查项（明细见任务目录 accept_failures.json）：\n'
+          + task.error.failures.map(function (f) {
+            return '· ' + f.name + (f.detail ? '（' + f.detail + '）' : '');
+          }).join('\n');
       }
       msg += '\n' + (task.error.hint || '请新建任务重试');
       showWsError(msg);
@@ -605,18 +770,19 @@
     // 删除任务：会同时删掉任务目录（source.csv / 视频 / 日志）与运行目录，需两次点击确认
     if (task.status !== 'running') wsActions.appendChild(makeDeleteButton(task.taskId));
 
-    // 进度 / 视频
+    // 进度 / 视频：终态也要保留步骤清单，只是按成功/失败改标签，避免残留「进行中」
     if (task.status === 'running') {
-      showProgress(task);
+      showProgress(task, 'running');
       startPolling();
     } else {
       stopPolling();
-      if (task.status === 'success' && task.mp4) {
-        showVideo(task);
+      if (task.status === 'success' || task.status === 'failed') {
+        showProgress(task, task.status);
       } else {
         hideProgress();
-        hideVideo();
       }
+      if (task.status === 'success' && task.mp4) showVideo(task);
+      else hideVideo();
     }
 
     renderTrace(task);
@@ -680,7 +846,8 @@
         var v = tr.verification || {};
         var rows = (tr.trace || []).slice(0, 8).map(function (t) {
           var pos = t.kind === 'bar' ? t.label : (t.series + ' · ' + t.date);
-          return '<tr><td>第 ' + t.sourceLine + ' 行</td><td>' + escapeHtml(pos) + '</td><td>'
+          var at = t.sourceFile === 'dividend.csv' ? '分红表第 ' : '第 ';
+          return '<tr><td>' + at + t.sourceLine + ' 行</td><td>' + escapeHtml(pos) + '</td><td>'
             + escapeHtml(fmtNum(t.value)) + '</td><td>' + escapeHtml(t.sourceText || '') + '</td></tr>';
         }).join('');
         var more = (tr.trace || []).length > 8
@@ -688,7 +855,7 @@
           : '';
         wsTrace.innerHTML = '<details open><summary>数据溯源：' + (v.verified || 0) + ' / ' + (v.points || 0)
           + ' 个数据点已按行号回读核对（源文件 sha256:' + String(tr.source.sha256).slice(0, 12) + '…）</summary>'
-          + '<table class="trace-table"><thead><tr><th>源文件</th><th>位置</th><th>数值</th><th>该行原文</th></tr></thead>'
+          + '<table class="trace-table"><thead><tr><th>源文件位置</th><th>位置</th><th>数值</th><th>该行原文</th></tr></thead>'
           + '<tbody>' + rows + '</tbody></table>' + more
           + '<p class="trace-foot"><a href="/api/tasks/' + encodeURIComponent(task.taskId)
           + '/source">下载留档的原始 CSV</a> · 视频 sha256:' + String(tr.video.sha256).slice(0, 16) + '…</p></details>';
@@ -702,18 +869,35 @@
     return String(v);
   }
 
-  // 阶段 4A：只展示真实可观测的阶段状态，不计算/展示任何百分比或虚构进度
-  function showProgress(task) {
+  // 阶段 4A：只展示真实可观测的阶段状态，不计算/展示任何百分比或虚构进度。
+  // 终态由页面按 task.status 映射：不改写后端 progress 里的真实记录。
+  //  success：所有已登记步骤都显示「已完成」；
+  //  failed ：最后一个 running 步骤改为「失败」，其余保留已完成 / 待执行。
+  function showProgress(task, terminalStatus) {
     wsProgress.hidden = false;
     var p = task.progress || {};
-    wsStatusText.textContent = '执行中：' + (p.currentStep || p.phase || '准备中');
+    var terminal = terminalStatus || task.status;
+    if (terminal === 'success') {
+      wsStatusText.textContent = '已完成：全部步骤通过';
+    } else if (terminal === 'failed') {
+      wsStatusText.textContent = '执行失败：' + ((task.error && task.error.message) || '请查看下方错误说明');
+    } else {
+      wsStatusText.textContent = '执行中：' + (p.currentStep || p.phase || '准备中');
+    }
     var steps = p.steps || [];
+    if (!steps.length && (terminal === 'success' || terminal === 'failed')) {
+      steps = [{ name: terminal === 'success' ? '任务完成' : '任务执行', state: terminal }];
+    }
     wsSteps.innerHTML = '';
     steps.forEach(function (s) {
       var name = typeof s === 'string' ? s : (s.name || s.tool || '阶段');
       var state = typeof s === 'string' ? 'pending' : (s.state || (s.ok ? 'done' : 'pending'));
-      var label = state === 'done' ? ' ✓ 已完成' : state === 'running' ? ' … 进行中' : ' · 待执行';
-      wsSteps.appendChild(el('<li class="' + state + '">' + name + label + '</li>'));
+      if (terminal === 'success') state = 'done';
+      else if (terminal === 'failed' && state === 'running') state = 'failed';
+      var label = state === 'done' ? ' ✓ 已完成'
+        : state === 'running' ? ' … 进行中'
+          : state === 'failed' ? ' ✗ 失败' : ' · 待执行';
+      wsSteps.appendChild(el('<li class="' + state + '">' + escapeHtml(name) + label + '</li>'));
     });
   }
   function hideProgress() { wsProgress.hidden = true; }

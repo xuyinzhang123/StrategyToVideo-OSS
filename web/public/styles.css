@@ -209,6 +209,7 @@ body {
 .progress-steps li { font-size: 12px; padding: 4px 10px; border-radius: 999px; border: 1px solid var(--line); background: #fafbfc; color: var(--muted); }
 .progress-steps li.done { color: var(--ok); border-color: #cdeedd; background: #f1fbf5; }
 .progress-steps li.running { color: var(--brand); border-color: #c9d9ff; background: #f2f6ff; font-weight: 600; }
+.progress-steps li.failed { color: var(--bad); border-color: #f1cccc; background: #fdf0f0; font-weight: 600; }
 
 /* MACD 参数锁定提示 */
 .locked-note {

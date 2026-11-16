@@ -9,6 +9,8 @@
 const CLASS_FIELDS = {
   timeseries: { required: ['date', 'value'], optional: ['series'] },
   cross_section: { required: ['label', 'value'], optional: ['group', 'value2'] },
+  // C 类：股票日线（DATA_SPEC §4.1）。volume / amount 均可省略（G-4 已验证下游无 amount 依赖）
+  stock_ohlc: { required: ['date', 'open', 'high', 'low', 'close'], optional: ['volume', 'amount'] },
 };
 
 // 面向用户的字段名。错误文案里出现 date / value 会让界面上的「日期（必填）」「数值（必填）」
@@ -20,6 +22,12 @@ const FIELD_LABELS = {
   label: '名称',
   group: '分组',
   value2: '对照值',
+  open: '开盘价',
+  high: '最高价',
+  low: '最低价',
+  close: '收盘价',
+  volume: '成交量',
+  amount: '成交额',
 };
 
 function labelOf(field) {
@@ -38,6 +46,12 @@ const ALIASES = {
   label: ['label', '名称', '标签', '项目', '对象', '渠道', 'name'],
   group: ['group', '分组', '组别', '类别'],
   value2: ['value2', '对照', '上期', '对比值', '第二数值'],
+  open: ['open', '开盘', '开盘价'],
+  high: ['high', '最高', '最高价'],
+  low: ['low', '最低', '最低价'],
+  close: ['close', '收盘', '收盘价'],
+  volume: ['volume', 'vol', '成交量', '量'],
+  amount: ['amount', 'turnover', '成交额', '成交金额', '额'],
 };
 
 function norm(s) {
@@ -112,13 +126,21 @@ function resolveMapping(dataClass, headerFields, mapping) {
   }
 
   if (missing.length) {
+    // 到达这里的字段：既没显式映射，也没在表头里找到它的任一别名列。
+    // 前端会再细分为「文件里没有这类列」与「有列但没选映射」；服务端只负责
+    // 明确告知「表头里没有可识别的列」，避免仍用「还没指定」误导用户。
     return {
       ok: false,
       code: 'E_MAPPING_COLUMN',
-      message: `还没指定必填字段：${labelsOf(missing)}。文件实际表头：${listHeader(headerFields)}。`
-        + '请在页面的「列映射」里为它选择对应的列。',
+      message: `文件表头里没有识别到必填列：${labelsOf(missing)}（未找到这些字段的常用列名或同义列）。`
+        + `文件实际表头：${listHeader(headerFields)}。`
+        + '如果它们以别的列名存在，请在页面的「列映射」里明确选择对应列。',
       missing,
       missingLabels: missing.map(labelOf),
+      absent: missing,
+      absentLabels: missing.map(labelOf),
+      unmapped: [],
+      unmappedLabels: [],
       headers: headerFields.map((f) => f.text),
     };
   }

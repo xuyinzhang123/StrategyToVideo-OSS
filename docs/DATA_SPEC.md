@@ -1,8 +1,8 @@
-# 用户数据契约（V0.2 · Draft 3）
+# 用户数据契约（V0.2 · Draft 4）
 
-> 状态：**A / B 类已实现并跑通出片，含原始 CSV 留档、SHA-256 指纹与行号溯源；C 类（股票日线）未实现，受门禁约束（见 §7.1）**。
+> 状态：**A / B / C 三类均已实现并跑通出片，含原始 CSV 留档、SHA-256 指纹与行号溯源；C 类（股票日线）走 V1.2.3 并通过 41 项独立验收交付，复权口径仅支持 `adjust=none`（§7.2）**。
 > 适用范围：Open Source V0.1 之后新增的「用户导入 CSV」通道（V0.2）。
-> 上游依据：**Issue #1「v0.2 / 1：用户 CSV 输入到本地视频的端到端流程」**（open）。该 Issue 位于私人主仓库，未随开源包公开，故此处不写链接；`AC-01 ~ AC-18`（§9）即对应该 Issue 的验收标准。
+> 上游依据：**Issue #1「v0.2 / 1：用户 CSV 输入到本地视频的端到端流程」**（open）。该 Issue 位于私人主仓库，未随开源包公开，故此处不写链接；`AC-01 ~ AC-20`（§9）即对应该 Issue 的验收标准。
 >
 > **Draft 1 → Draft 2 变更记录（均为修正，非扩展）**
 > 1. 修正千分位数字的接受/拒绝规则：新增 `E_THOUSANDS_SEPARATOR`，并把「引号内严格千分位」与「其他含逗号形态」分开；补上 RFC 4180 引号规则（否则千分位判定不可达，见 §1.1 / §1.2）。
@@ -15,6 +15,12 @@
 > 2. 新增 §1.9：确定性（同输入 → 逐字节相同 MP4）与任务删除语义（连原始 CSV 与视频一起删除）。
 > 3. 页脚不再显示导入时间，改显示源文件 SHA-256 前 12 位——时间戳会破坏确定性。
 > 4. §6.1 新增 `E_SOURCE_MISSING` / `E_TRACE_MISMATCH` / `E_TRACE_FAILED` / `E_TRACE_MISSING`；§9 新增 AC-15 ~ AC-18。
+>
+> **Draft 3 → Draft 4 变更记录（发布前代码审查的三处口径修正，不扩展功能）**
+> 1. **C 类补齐溯源**：股票通道此前只留档 + SHA，不写 `traceability.json`，网页溯源面板对股票任务为空。现与 A/B 同契约：逐根 K 线的日期与 OHLC、逐条分红的除息日与每股现金红利 → `source.csv` / `dividend.csv` 行号；渲染前回读核对，不符即 `E_TRACE_FAILED`（§1.8）。
+> 2. **页脚兑现「来源说明」**：表单写明「会写进视频页脚」，但股票通道的 `copy.footer_left` 未使用 `sourceNote`。现写入页脚，并对页脚左段与页头副标题做宽度自适应（缩字号→省略号），避免长文件名/长来源压到右侧免责声明。
+> 3. **`/api/health` 与实际可执行能力对齐**：`executableStrategies` / `execution.strategies` / `strategyModes` 统一由 `STRATEGY_MODES` 派生并包含 `stock_ohlc`，消除「前端可执行、接口宣称不可执行」的矛盾；新增 `npm run check:api` 守这条口径（AC-20）。
+> 4. `check:samples` 增至 30 项（新增股票溯源：无分红 260/260、含分红 262/262、篡改一行即拒绝）；§9 新增 AC-19 / AC-20。
 
 ---
 
@@ -34,7 +40,7 @@ V0.1 只有一条数据通道：随包的 SIMULATED 模拟日线 → MACD 回测
 三条不可动摇的原则：
 
 1. **A / B 类不得被要求补出股票回测的八段内部结构**（`meta/bars/calendar/suspensions/actions/actionsOutOfRange/exChecks/checks`）。它们各有自己的轻量归一化结构。
-2. **不是所有 CSV 都导向 MACD**。只有 C 类走现有回测与 V1.2.2 渲染器。A / B 类走通用图表渲染，与策略、回测、费用、分红无关。
+2. **不是所有 CSV 都导向 MACD**。只有 C 类走现有回测与 V1.2.3 渲染器。A / B 类走通用图表渲染，与策略、回测、费用、分红无关。
 3. **不自动生成新结论**。画面只呈现数据里存在的事实；收益率、回撤、年化、归因等需要口径的指标，通用类一律不计算。
 
 ---
@@ -160,8 +166,10 @@ Issue #1 的第四条要求是「视频里的数字能回溯到原始数据」�
 | 指纹 | `sha256(source.csv 的字节)` 全 64 位，写入任务记录（`status.source.sha256`）、归一化模型（`meta.sourceSha256`）与溯源清单 |
 | 画面呈现 | 视频页脚显示 `文件名 + sha256 前 12 位`。**页脚不显示导入时间**：时间戳会让同一份数据在不同日期出片得到不同字节，破坏确定性（见 §1.9） |
 | 源行号 | 归一化模型里每个数据点/条目带 `line`（源文件物理行号，1 起，表头是第 1 行） |
-| 溯源清单 | 渲染成功后写 `web/tasks/<taskId>/traceability.json`：源文件指纹、映射、逐条 `{位置, 数值, sourceLine, sourceText}`、视频 sha256 |
-| 回读核对 | 渲染前**重新解析** `source.csv`，按行号取回该行，逐字段比对日期/名称/数值；任一处不符 → `E_TRACE_FAILED`，**拒绝交付** |
+| 行数口径 | `source.lines` / `meta.sourceLines` 是**源文件文本行数**（含表头，文件末尾换行不额外计一行）；`source.dataLines` 是**实际数据记录数**（不含表头，跳过空行），与 `meta.rowCount` 同义。两者在网页任务详情分别展示，行号溯源仍按物理行号，不因统计口径变化而改写 |
+| 溯源清单 | 渲染成功后写 `web/tasks/<taskId>/traceability.json`：源文件指纹、映射、逐条 `{位置, 数值, sourceLine, sourceFile, sourceText}`、视频 sha256。A/B 类逐数据点；C 类逐根 K 线（日期 + OHLC）与逐条分红（除息日 + 每股现金红利，`sourceFile=dividend.csv`） |
+| 回读核对 | 渲染前**重新解析** `source.csv`（C 类另加 `dividend.csv`），按行号取回该行，逐字段比对：A/B 比对日期/名称/数值，C 比对 K 线日期与 OHLC、分红除息日与每股现金红利；任一处不符 → `E_TRACE_FAILED`，**拒绝交付** |
+| 推导量 | 视频里的资产金额、收益率、信号标签由回测按输入计算，**不是 CSV 原始数字**；`traceability.json.derivations` 明写这层关系，清单只声称「输入来自这一行」，不假装画面数字能逐字反查 CSV |
 | 留档被改动 | `source.csv` 的 SHA-256 与创建时记录的不一致 → `E_TRACE_MISMATCH`，拒绝交付 |
 | 留档缺失 | 任务目录没有 `source.csv` → `E_SOURCE_MISSING`，拒绝交付（宁可不给视频，也不给一份无法追溯的视频） |
 | 隐私边界 | 留档只在本机任务目录，`.`gitignore` 已排除 `web/tasks/`；不上传、不进版本控制。删除任务即删除留档 |
@@ -297,7 +305,7 @@ Issue #1 的第四条要求是「视频里的数字能回溯到原始数据」�
 
 ## 4. 数据类 C：股票日线 `stock_ohlc`（扩展契约）
 
-这是三类中**唯一**会进入现有 MACD 回测与 V1.2.2 渲染器的类别。它的契约最严，因为回测内核有一批不可让步的假设。
+这是三类中**唯一**会进入现有 MACD 回测与 V1.2.3 渲染器的类别。它的契约最严，因为回测内核有一批不可让步的假设。
 
 ### 4.1 最小字段（行情 CSV）
 
@@ -364,7 +372,7 @@ Issue #1 的第四条要求是「视频里的数字能回溯到原始数据」�
 
 ### 4.5 预期视频
 
-**直接复用 V1.2.2 模板**，不新增版式：
+**复用 V1.2.3 模板**（以 V1.2.2 为基准，只改短样本时间轴与浮板定位），不新增版式：
 
 | 项 | 值 |
 |---|---|
@@ -386,10 +394,11 @@ Issue #1 的第四条要求是「视频里的数字能回溯到原始数据」�
 
 | 情形 | 能做 | 必须拒绝 | 画面标注 |
 |---|---|---|---|
-| `adjust=none`，提供分红 CSV | 完整三段式入账（权益/应收/到账），计红利税 | 缺 `record_date`/`pay_date`；日期不在行情日历内 | 「含现金分红 N 次，税前合计 X」 |
-| `adjust=none`，**不提供**分红 CSV | 可跑，但除权跳空按普通下跌处理，收益少计分红 | 不拒绝，记 `W_NO_DIVIDENDS` | 「未提供分红，结果不含现金分红；除权跳空按价格下跌处理」**必须显示** |
-| `adjust=qfq/hfq`，提供分红 CSV | — | **拒绝** `E_DIV_CONFLICT`：价格已含分红，再入账即重复计算 | — |
-| `adjust=qfq/hfq`，不提供分红 | 可跑（等价于只做价格差） | 不拒绝 | 「已复权价格，不单独计分红；不同起点的前复权序列不可直接比较」 |
+| `adjust=none`，提供分红 CSV | 完整三段式入账（权益/应收/到账），计红利税 | 缺 `record_date`/`pay_date`；日期不在行情日历内 | 「含现金分红 N 次」+「含佣金、印花税、过户费与红利税」；各项金额见片尾费用明细 |
+| `adjust=none`，**不提供**分红 CSV | 可跑，但除权跳空按普通下跌处理，收益少计分红 | 不拒绝，记 `W_NO_DIVIDENDS` | 副标题显示「未提供分红表（除权跳空按价格下跌处理，结果不含现金分红）」+「含佣金、印花税、过户费（无红利税）」；片尾总述不写「已扣除红利税」 |
+| `adjust=qfq/hfq`（无论是否提供分红 CSV） | — | **拒绝** `E_ADJUST_UNVERIFIED`（V0.2 起，见 §7.2）：复权是合成价，回测把它当真实成交价算金额与费用，收益不对应真实账户 | — |
+| `adjust=qfq/hfq` 且提供分红 CSV | — | **拒绝** `E_DIV_CONFLICT`：复权价已含分红，再入账即重复计算（当前被上一条先拦，保留以防将来放开复权口径） | — |
+| `adjust=qfq/hfq`，不提供分红 | **不可跑**：V0.2 起一律拒绝（见上一行与 §7.2 G-6） | `E_ADJUST_UNVERIFIED` | —（不产出视频） |
 
 **待验证**
 
@@ -405,15 +414,15 @@ Issue #1 的第四条要求是「视频里的数字能回溯到原始数据」�
 | 口径 | 语义 | 允许 | 禁止 |
 |---|---|---|---|
 | `none` | 原始成交价（未复权） | 可配分红 CSV；无分红则标注 | — |
-| `qfq` | 前复权 | 不配分红 CSV | 配分红 CSV（重复计算） |
-| `hfq` | 后复权 | 不配分红 CSV | 配分红 CSV（重复计算） |
+| `qfq` | 前复权 | V0.2 一律拒绝（`E_ADJUST_UNVERIFIED`，见 §7.2 G-6） | 配分红 CSV（重复计算）；当前先被上一条拒绝 |
+| `hfq` | 后复权 | V0.2 一律拒绝（`E_ADJUST_UNVERIFIED`，见 §7.2 G-6） | 配分红 CSV（重复计算）；当前先被上一条拒绝 |
 
 必须写进画面的两条风险提示：
 
 1. **前复权序列会随每次新的除权而整体重算**，同一只股票在不同时间点导出的 qfq 数据，历史值不同，两段拼接会产生伪跳变。
 2. 复权价可能为负（老数据长期前复权），价格 `<= 0` → `E_PRICE_NONPOSITIVE`。
 
-**待验证**：`qfq` 数据在除权日附近的涨跌停判定是否被 `exRefPrice` 二次调整。当前 `buildTimeline` 对每个除权日都会算除权参考价，若用户价格已是复权价，这一步会重复调整参考价，可能影响封板判定。**这是契约里最需要在 Step 3 用样例证明的一处**，方法：构造同一段行情，分别以 `none + 分红` 与 `qfq + 无分红` 输入，比较两边的 `limitUp/limitDown` 序列是否一致。
+**原待验证项已关闭**：`qfq` 数据在除权日附近的涨跌停判定是否被 `exRefPrice` 二次调整，已用同一行情的 `none + 分红` 与 `qfq + 无分红` 对拍证明无二次调整（涨跌停换算最大偏差 0.0099 元、超差 0 天），见 §7.1 G-1 与 §11。**但该结论只覆盖封板判定，不足以放开 qfq/hfq**：成交价、整手仓位与费用口径仍未证明，故 V0.2 一律拒绝（§7.2 G-6）。上面两条风险提示在将来放开复权口径时仍然适用。
 
 ### 5.3 交易日历与缺口
 
@@ -497,7 +506,7 @@ V0.1 的停牌是「日历里有该日、但 bars 里没有该日」。用户 CS
 | `E_ROW_EMPTY_FIELD` | 必填列为空 | 行号 + 列名 |
 | `E_PARTIAL_COLUMN` | 可选列部分为空 | 列名 + 空值行号列表 |
 | `E_MAPPING_FIELD` | 映射目标字段非法 | 非法字段 + 允许清单 |
-| `E_MAPPING_COLUMN` | 映射指向的源列不存在 | 目标字段 + 期望列名 + 文件实际表头 |
+| `E_MAPPING_COLUMN` | 映射指向的源列不存在，或表头缺少必填列且没有可识别的同义列 | 目标字段 + 实际表头；界面另区分「文件里没有这类列」与「有列但尚未映射」 |
 | `E_MAPPING_DUP` | 两个目标字段映射到同一源列 | 列名 |
 | `E_PRICE_NONPOSITIVE` | 价格 ≤ 0 | 行号 + 列名 + 值 |
 | `E_OHLC_INCONSISTENT` | high/low 与 open/close 矛盾 | 行号 + 四个价格 |
@@ -508,6 +517,8 @@ V0.1 的停牌是「日历里有该日、但 bars 里没有该日」。用户 CS
 | `E_SYMBOL_REQUIRED` | C 类未填代码 | — |
 | `E_UNSUPPORTED_BOARD` | 非沪深主板 / ST / 退市 | 代码 + 判定依据 |
 | `E_DATE_BEFORE_COST_RULES` | 起点 < 2015-08-01 | 实际起点 |
+| `E_ADJUST_INVALID` | `adjust` 不是 none/qfq/hfq | 实际值 |
+| `E_ADJUST_UNVERIFIED` | `adjust=qfq/hfq`（V0.2 只接受未复权，见 §7.2） | 实际值 + 拒绝原因（合成价不参与金额/费用口径） |
 | `E_DIV_CONFLICT` | 已复权 + 提供分红 | 复权口径 |
 | `E_DIV_MISSING_DATE` | 分红缺 record/pay date | 分红日期 |
 | `E_DIV_DATE_NOT_TRADING` | 分红日期不在行情日历 | 日期 + 缺失原因 |
@@ -553,26 +564,41 @@ V0.1 的停牌是「日历里有该日、但 bars 里没有该日」。用户 CS
 
 | # | 待验证项 | 方法 | 阻塞什么 |
 |---|---|---|---|
-| V-01 | `qfq` 下除权参考价是否被二次调整，影响封板判定 | 同一行情分别以 `none+分红`、`qfq+无分红` 输入，比对 `limitUp/limitDown` 序列 | **仅股票通道门禁 G-1，不阻塞 A/B**（见 §7.1） |
+| V-01 | ~~`qfq` 下除权参考价是否被二次调整，影响封板判定~~ | **已关闭（2026-11-16）**：同一行情分别以 `none+分红`、`qfq+无分红` 构造对拍，`limitUp/limitDown` 换算回真实水平最大偏差 0.0099 元（< 0.02 容差，超差 0 天）；除权日 `refClose` 与 qfq 前收一致，含一字板用例 | ~~仅股票通道门禁 G-1~~ |
 | V-02 | 日历缺口对 MACD 信号的偏差幅度 | 删除 5/10/20 个连续交易日，记录信号数与终值变化 | 缺口阈值是否从 10 天下调 |
 | V-03 | 未提供分红时除权跳空的误判幅度 | 清空 `actions` 重跑，比较终值与信号数 | `W_NO_DIVIDENDS` 是否足够，还是应升级为拒绝 |
 | V-04 | 2 MiB 上限对目标数据集是否够用 | 用已验收模拟数据转 CSV 实测（约 49.8 B/行 → 2 MiB ≈ 42,000 行） | Step 1 的服务端 body 上限取值 |
 | V-05 | ~~60 个交易日样本能否稳定出片~~ | **已关闭**：样例 C 给到 260 个交易日，实测 12 次金叉 / 11 次死叉 / 23 笔成交 | 无需加长 |
-| V-06 | 用户 CSV 缺 `amount` 时下游是否有字段依赖 | 检索 `summary/daily.csv/macd.csv` 生成链路是否读 `amount` | C 类是否可把 `amount` 降为可省略 |
+| V-06 | ~~用户 CSV 缺 `amount` 时下游是否有字段依赖~~ | **已关闭（2026-11-16）**：全仓检索确认回测/渲染/验收链路不读 CSV 的 `amount` 列；`sealedSide()` 只用 open/high/low/close | ~~C 类是否可把 `amount` 降为可省略~~ → 已降为可省略 |
 | V-07 | B 类 60 行上限是否满足真实用途 | 收集真实对比表规模 | 是否放开上限或引入 Top-N |
+| **V-08** | ~~V1.2.2 独立验收（40 项）按 2633 交易日演示样例标定，对短样本用户导入是否适用~~ | **已关闭（2026-11-16，V1.2.3）**：260 日样例实测 34/40，6 项不达标全部归因——①首个 MACD 点 30px 阈值（= 演示样例像素密度换算，260 日时 25 个预热日 = 161px，任何 N<1838 都不可能满足）；②浮板固定 y1=182 压住贴 10 万起点的曲线（132 处）；③④⑤⑥`build_smooth_timeline` 把 n_days 个日密度当 n_days 个区间成本，末日后多出幻影区间被钳成零位移帧（4 帧，34 日边界 46 帧）。修复见 §7.1 G-5 | ~~G-5~~ → 已由 V1.2.3 关闭 |
 
 > V-05 已在样例设计时规避：`stock_ohlc.csv` 给到 **260 个交易日**（> 33），足以产生多次金叉/死叉，不需要靠「刚好够预热」的数据赌出片。已实测确认（见 §11）。
 
 ### 7.1 股票通道门禁（C 类专用，**不阻塞 A/B**）
 
-C 类在下列门禁全部通过前**不开放**；网页对 `stock_ohlc` 一律返回 `E_CLASS_NOT_IMPLEMENTED`，不创建任务、不渲染、不产出「看起来成功」的视频。
+C 类在下列门禁全部通过前不开放。**2026-11-16 更新：G-1 ~ G-6 已全部通过验证/实现**（验证记录见 §11）；出片交付由 V1.2.3 渲染与验收链路承担——独立验收未通过的任务一律失败落盘（`E_VERIFY_FAILED`），不产出「看起来成功」的视频。
 
 | 门禁 | 内容 | 关联 | 现状 |
 |---|---|---|---|
-| **G-1** | `qfq` 数据在除权日附近，涨跌停价与封板判定不被 `exRefPrice` 二次调整 | V-01 | ❌ 未验证 |
-| G-2 | CSV → 八段结构转换器（含「空分红日历」分支，避免 `E_NO_PAY_CALENDAR`） | §4.4 | ❌ 未实现 |
-| G-3 | 起点早于 2015-08-01 的费率缺口处理 | §5.4 | ✅ 规则已定（拒绝） |
-| G-4 | `amount` 缺省时下游链路无字段依赖 | V-06 | ❌ 未验证 |
+| **G-1** | `qfq` 数据在除权日附近，涨跌停价与封板判定不被 `exRefPrice` 二次调整 | V-01 | ✅ 已验证（260 交易日 / 2 分红 / 涨跌停换算最大偏差 0.0099 元 < 0.02，超差 0 天；除权日 `refClose` 与 qfq 前收逐日一致） |
+| G-2 | CSV → 八段结构转换器（含「空分红日历」分支，避免 `E_NO_PAY_CALENDAR`） | §4.4 | ✅ 已实现（`web/src/import/validate.js: buildStockOhlc` + `web/src/adapters/stockOhlc.cjs`） |
+| G-3 | 起点早于 2015-08-01 的费率缺口处理 | §5.4 | ✅ 规则已定（拒绝，`E_DATE_BEFORE_COST_RULES`） |
+| G-4 | `amount` 缺省时下游链路无字段依赖 | V-06 | ✅ 已验证（全仓检索：回测/summary/daily/macd/signals 生成链路不读 CSV 的 `amount` 列；`sealedSide()` 只用 OHLC） |
+| **G-5** | V1.2.2 独立验收（40 项）对用户导入样本的适用性 | §7 V-08 | ✅ **已解决（V1.2.3）**：V1.2.3 显式选 `cost_domain="intervals"`（180 组边界矩阵全达标），V1.2.2 默认封版 `cost_domain="days"`（SHA 逐位冻结、成片与原公开版本逐字节一致）；首个 MACD 点阈值改为与长度无关的两条不变量；浮板高度/定位改读渲染报告并按本次资产轨迹自适应。260 日样例独立验收 **41/41 通过**并交付 MP4；V0.1 演示仍走 V1.2.2 且 40/40 保持通过 |
+| **G-6** | 复权（qfq/hfq）行情能否用于准确的成交价/仓位/收益计算 | §7.2 | ✅ **已验证并落为门禁**：不能。V0.2 只接受 `adjust=none`，qfq/hfq → `E_ADJUST_UNVERIFIED`（证据见 §7.2） |
+
+#### 7.2 复权口径门禁（G-6，2026-11-16）
+
+回测把 CSV 价格**直接当真实成交价**：`amount = shares × price`，佣金/印花税/过户费/红利税全部按该金额计，买入按 100 股整手对 `price` 取整（`stock_core.cjs: affordableShares` / `tradeFee`）。因此只要价格不是真实成交价，金额与收益率就不是真实账户的结果。qfq/hfq 是**合成价**，且复权因子随时间变化，实测影响：
+
+| 口径 | 信号 / 日期 | MACD 终值 | 持有终值 | 最大回撤 |
+|---|---|---|---|---|
+| `none` + 分红表（正口径） | 23 笔 | ¥102,918.09 | ¥117,347.32 | 12.70% |
+| 真实 qfq 因子、无分红表 | 23 笔，**其中 5 笔日期不同**（如金叉 2024-07-10 → 2024-07-03） | ¥105,472.69（+2,554.60） | ¥118,120.47（+773.15） | 10.82% |
+| 整体 ×0.96 等比缩放 | 23 笔，日期相同 | ¥102,930.88（+12.79） | ¥117,319.56（−27.76） | 12.70% |
+
+结论：即使 G-1 证明涨跌停参考价在 qfq 下无二次调整，也只覆盖「封板判定」这一个点；**成交价、仓位（整手取整）、费用（最低 5 元/笔）与收益金额在 qfq/hfq 下均无法证明与真实账户一致**，且复权价已含分红、不能再叠加分红表。因此 V0.2 股票通道只接受 `adjust=none`（未复权行情 + 分红表），qfq/hfq 明确拒绝（`E_ADJUST_UNVERIFIED`）；放开复权口径需要先单独验收「成交价口径」一致性。
 
 > 为什么单列而不再混在 A/B 的待验证清单里：两类数据的风险结构不同。A/B 画错一眼能看出来（线画歪、条长短）；C 类算错则看不出来（手续费少算、封板误判、分红重复计算），只能靠前置证明。**因此 A/B 可以先上，C 必须等门禁。**
 
@@ -587,16 +613,21 @@ C 类在下列门禁全部通过前**不开放**；网页对 `stock_ohlc` 一律
 | `engine_next/lib/support_guard.cjs` | 代码段白名单、ST/退市拒绝、公司行为白名单（CASH_DIV/SHARE_DIV） |
 | `engine_next/lib/stock_cost.cjs` | 费率分段与「无适用规则即抛错」 |
 | `engine_next/lib/stock_macd_core.cjs` | `readyFrom = 33`，最少 34 个交易日 |
-| `engine_next/config.stock_macd_video_v122.json` | 所有用户可见文案在 `copy` 段；来源标注只需替换此处，**不改渲染器** |
-| `web/server.js` | 传输上限已上调：`MAX_BODY_BYTES = 5 MiB`（含 JSON 转义余量）；**文件级**上限仍是本契约的 2 MiB，由校验器判定 |
-| `web/src/validation.js` | 已注册 `macd` / `timeseries` / `cross_section`；`stock_ohlc` 未注册，直接 `E_CLASS_NOT_IMPLEMENTED` |
-| `web/src/csv.js` | RFC 4180 子集解析：引号、`""` 转义、BOM、CRLF/LF/CR、分隔符检测；返回「原始文本 + 是否带引号 + 行号」 |
-| `web/src/import/mapping.js` | §1.7 映射解析、别名兜底、冲突检测 |
-| `web/src/import/validate.js` | 通用规则 + A/B 两类校验，输出 §2.2 / §3.2 归一化结构 |
+| `engine_next/config.stock_macd_video_v122.json` | 所有用户可见文案在 `copy` 段；来源标注只需替换此处，**不改渲染器**。V0.2 起 `chart.panel.y1` 只约束 V1.2.2 演示路径；用户导入路径由适配器解掉该键，交 V1.2.3 自适应 |
+| `engine_next/render_stock_macd_v123.py` | 用户 CSV 专用渲染器（V1.2.3）：在 V1.2.2 基础上只改「短样本时间轴成本域（`video_events.py` 的 `cost_domain="intervals"` 显式开关）+ 浮板按本次资产轨迹自适应定位 + 报告真实浮板矩形」；V0.1 演示继续用 `render_stock_macd_v122.py`（不传开关 → 封版 `cost_domain="days"`），两者共享回测产物与文案 token 表 |
+| `engine_next/tests/accept_macd_video_v123.py` | 用户 CSV 独立验收（41 项）：与 V1.2.2 逐条同源，仅三处按本次数据推导的适配（首个 MACD 点不变量 / 浮板矩形读报告 / anchor≠forced-top）；演示验收仍用 `accept_macd_video_v122.py`（40 项） |
+| `engine_next/tests/test_timeline_bounds.py` | 时间轴回归：① V1.2.3 口径 6 种事件分布 × 10 种交易日数 × 3 种帧数 = 180 组，断言首末覆盖/单调/零位移=0/最长死停=0；② 封版口径（默认 `cost_domain="days"`）3 组参数的 POS 序列 SHA 逐位冻结，防止修短样本时把 V0.1 已发布画面改掉 |
+| `web/server.js` | 传输上限：`MAX_BODY_BYTES = 5 MiB`（含 JSON 转义余量），**文件级**上限仍是本契约的 2 MiB，由校验器判定；`/api/health` 的能力自述由 `STRATEGY_MODES` 单一真相源派生（含 `stock_ohlc`），与前端可执行能力一致（AC-20） |
+| `web/src/validation.js` | 已注册 `macd` / `timeseries` / `cross_section` / `stock_ohlc`（V0.2 起）；C 类额外放行 `symbol` / `name` / `adjust` / `dividendCsvText` |
+| `web/src/csv.js` | RFC 4180 子集解析：引号、`""` 转义、BOM、CRLF/LF/CR、分隔符检测；返回「原始文本 + 是否带引号 + 行号」；另提供 `countTextLines`（末尾换行不虚增）与 `countDataRecords`（不含表头/跳过空行）两个行数口径 |
+| `web/src/import/mapping.js` | §1.7 映射解析、别名兜底、冲突检测；错误文案使用中文标签（日期/数值/名称…），不把内部键名抛给用户 |
+| `web/src/import/validate.js` | 通用规则 + A/B/C 三类校验，输出 §2.2 / §3.2 / §4.4 结构；C 类 `buildStockOhlc` 做 OHLC 合法性与分红三日期校验 |
 | `web/src/adapters/genericChart.cjs` | A/B 适配器：归一化模型 → 通用渲染器 → MP4；写 `traceability.json`，按行号回读 `source.csv`（§1.8） |
 | `engine_next/render_generic_chart.py` | 通用图表渲染器（折线 / 条形），仅用 `deps/` 中的 Pillow + imageio-ffmpeg；页脚打源文件 SHA-256 指纹 |
-| `tools/check_samples.cjs` | 逐份样例的预期结果复核（`npm run check:samples`），对应 AC-11 |
 | `tools/check_determinism.cjs` | 两次独立出片 SHA-256 对拍（`npm run check:determinism`），对应 AC-17 |
+| `web/src/adapters/stockOhlc.cjs` | C 类适配器（V0.2）：`import.json` → 八段结构 + 分红日历 → 复用封版回测 + **V1.2.3 渲染/验收**；核对 `source.csv` / `dividend.csv` SHA；按行号回读 K 线与分红并写 `traceability.json`（§1.8）；解掉演示配置的浮板固定 y1；写 `conversion_manifest.json` 与 `accept_failures.json`；视频文案走 USER_IMPORT 档（页脚含 `sourceNote`） |
+| `tools/check_samples.cjs` | 逐份样例的预期结果复核（`npm run check:samples`），对应 AC-11；含 D 段股票溯源（无分红 / 含分红 / 篡改一行即拒绝） |
+| `tools/check_api_contract.cjs` | `/api/health` 能力口径断言（`npm run check:api`），对应 AC-20：`executableStrategies` / `execution.strategies` / `strategyModes` 同源且包含 `stock_ohlc`，未开放的框架占位不在清单内 |
 | `web/src/taskManager.js` | 创建任务时写 `source.csv` + `status.source`；`deleteTask` 删除任务目录（§1.9） |
 | `web/server.js` | `DELETE /api/tasks/:id`、`GET /api/tasks/:id/traceability`、`GET /api/tasks/:id/source` |
 
@@ -615,15 +646,17 @@ C 类在下列门禁全部通过前**不开放**；网页对 `stock_ohlc` 一律
 | **AC-07** | 日历缺口只警告不拒绝；停牌不可表达；画面必须标注缺口 | `warn_stock_calendar_gap.csv` |
 | **AC-08** | 手续费仅适用 C 类；费率固定；起点 < 2015-08-01 拒绝 | `stock_ohlc.csv`（起点 2024 合规） |
 | **AC-09** | 来源标注三档互斥；禁止「真实行情」字样；`SIMULATED` 与 `USER_IMPORT` 可切换 | `stock_ohlc.csv`（USER_IMPORT） |
-| **AC-10** | 预期视频规格按类别固定（A：20–35 s 折线；B：15–25 s 条形；C：52.8 s V1.2.2） | 全部 |
+| **AC-10** | 预期视频规格按类别固定（A：20–35 s 折线；B：15–25 s 条形；C：52.8 s V1.2.3） | 全部 |
 | **AC-11** | 每份样例的预期结果（通过/警告/拒绝 + 错误码 + 首错位置）可复现 | `docs/samples/README.md`；由 `npm run check:samples` 逐份断言 |
 | **AC-12** | 待验证清单列明方法与判定标准，未验证项不得写成已成立 | §7 |
 | **AC-13** | 字段映射只存在于参数中：换一份列名完全不同的 CSV，只需给映射即可出片，**不改源码** | `timeseries_single.csv` / `timeseries_multi.csv` / `cross_section.csv` + §11「换表头」实测 |
-| **AC-14** | `stock_ohlc` 在 §7.1 门禁通过前一律 `E_CLASS_NOT_IMPLEMENTED`，不产出任何视频 | `stock_ohlc.csv`（预期被拒绝，而非静默跑错） |
+| **AC-14** | C 类不静默跑错：独立验收未通过的任务必须失败落盘（`E_VERIFY_FAILED` + 逐条失败明细），不产出「看起来成功」的视频；复权口径只放行 `adjust=none`（qfq/hfq → `E_ADJUST_UNVERIFIED`，§7.2） | `stock_ohlc.csv`（通过样例 41/41 可复现；qfq 样例被拒可复现） |
 | **AC-15** | 原始 CSV 留档：任务目录下有 `source.csv`，其 SHA-256 与任务记录、归一化模型、溯源清单三处一致 | 任一 A/B 样例走完网页全流程后的 `status.source.sha256` |
 | **AC-16** | 行号溯源：每个数据点都能定位到 `source.csv` 的物理行号，且按该行号回读的字段值与画面数字一致 | `traceability.json` 的 `trace[].sourceLine` / `verification` |
 | **AC-17** | 确定性：同一 CSV 两次独立出片得到逐字节相同的 MP4 | `npm run check:determinism` |
 | **AC-18** | 删除任务即删除原始 CSV 与视频（任务目录 + 运行目录），不残留 | `DELETE /api/tasks/<id>` 后目录检查 |
+| **AC-19** | C 类同样可溯源：`traceability.json` 逐根 K 线（日期 + OHLC）与逐条分红（除息日 + 每股现金红利）定位到 `source.csv` / `dividend.csv` 行号；留档任一行被改动即 `E_TRACE_FAILED` | `stock_ohlc.csv`（260/260）、`stock_ohlc.csv + stock_dividends.csv`（262/262）；`npm run check:samples` D 段 |
+| **AC-20** | `/api/health` 的能力自述与实际可执行策略一致：`executableStrategies` / `execution.strategies` / `strategyModes` 同源且包含 `stock_ohlc`，未开放的框架占位不在清单内 | `npm run check:api` |
 
 ---
 
@@ -643,18 +676,23 @@ C 类在下列门禁全部通过前**不开放**；网页对 `stock_ohlc` 一律
 
 ## 11. 本轮边界（务必如实对待）
 
-- 本文档与 `docs/samples/*.csv` 是契约与素材。**A / B 类已有实现并跑通出片**（`web/src/import/*` 校验、`engine_next/render_generic_chart.py` 渲染），C 类仍是契约，渲染器与转换器均未实现，请求会被 §7.1 门禁拒绝。
-- `npm run check:samples` 是仓库自带的样例断言入口：12 份样例的通过/警告/拒绝与代码一一对应，任何人可自行复核（当前 22/22）。`npm run check:determinism` 做两次独立出片的 SHA-256 对拍。
+- 本文档与 `docs/samples/*.csv` 是契约与素材。**A / B 类已有实现并跑通出片**（`web/src/import/*` 校验、`engine_next/render_generic_chart.py` 渲染）。**C 类在 V0.2 开发分支已实装并交付出片**：校验/转换器（`buildStockOhlc`）、适配器（`stockOhlc.cjs`，走 V1.2.3 渲染/验收）、网页入口均已接入，260 日样例端到端通过独立验收并交付 MP4（见 §7.1 G-5 / §7.2 G-6）。
+- `npm run check:samples` 是仓库自带的样例断言入口：三类样例的通过/警告/拒绝与代码一一对应（当前 **27/27**）。`npm run check:determinism` 做两次独立出片的 SHA-256 对拍（V1.2.3 改动后复测 PASS）。
 - A / B 类的「预期视频」已由实现产出，时长/尺寸/标注可实测；但它们仍是**演示规格**，不代表任何真实业务的呈现标准。
-- C 类：**映射已实测，转换器未实现**。用一次性脚本把样例 4/5 转成八段结构后，仓库现有 `backtest_stock_macd.cjs` 跑通并**自检 21/21 通过**（260 交易日 / 12 金叉 / 11 死叉 / 23 笔成交 / 费用 1,261.91 / 红利税 490.00）。这证明契约 §4.4 的映射可落地、样例数据量足够；但转换器本身仍属后续版本，样例**不能**不经转换直接出片。
-- 上述 C 类实测在仓库外的临时目录中进行（`G:\_stv_spec_tmp`），未向仓库写入任何数据。
+- C 类端到端实测（2026-11-16，本仓库内）：样例 4/5 走「校验 → 八段结构 → 封版回测 → V1.2.3 渲染 → 独立验收」全链路，回测**自检 21/21 通过**，渲染产出 1584 帧 52.8 s MP4，视频文案经抽帧核对为 USER_IMPORT 档（页脚含文件名与 SHA 前 12 位、免责声明齐全、期末金额与 summary 逐位一致）；独立验收 **41/41 通过**，任务成功并交付视频。
+- 复权口径边界：V0.2 只接受 `adjust=none`；qfq/hfq 在请求阶段即被拒绝（`E_ADJUST_UNVERIFIED`），不允许产出可能失真的收益视频（证据见 §7.2）。
 - 用户导入的原始 CSV 与视频留在本机任务目录（`web/tasks/`，已被 `.gitignore` 排除），**不进入仓库**。
 
 **实测记录（可复核）**
 
 | 项 | 值 |
 |---|---|
-| 输入 | `docs/samples/stock_ohlc.csv`（260 行）+ `stock_dividends.csv`（2 事件） |
+| 输入 | `docs/samples/stock_ohlc.csv`（260 条数据记录 + 表头 = 文本 261 行）+ `stock_dividends.csv`（2 事件） |
 | 表单元数据 | `symbol=600000`、`adjust=none`、`name=样例标的A` |
 | 命令 | `node engine_next/backtest_stock_macd.cjs --config <临时配置> --run spec_sample_c` |
 | 结果 | 交易日 260（停牌 0）· 金叉 12 / 死叉 11 · 成交 23 笔 · 策略终值 102,918.09 · 持有 117,347.32 · 费用 1,261.91 · 红利税 490.00 · **自检 21/21** |
+| 渲染（V1.2.3 实测） | 1584 帧 / 52.8 s / 1920×1080@30fps · 片尾 ¥117,347.32 vs ¥102,918.09 与 summary 一致 · 页脚 `数据：用户导入 · stock_ohlc.csv · SHA 0ff3d04350ab · 未复权` · 浮板 anchor=bottom（y1=331，曲线之上零遮挡） |
+| 独立验收 | **PASS 41 / FAIL 0**（`accept_macd_video_v123.py`；平滑度 zero=0/still=0/cv=0.2458/accel=0.198）→ 任务成功并交付 MP4 |
+| 时间轴边界 | `python engine_next/tests/test_timeline_bounds.py`：180 组（事件分布 × 交易日 34~5000 × 帧数 300/660/1320）全部首末覆盖、单调、零位移=0、最长死停=0 |
+| V0.1 演示回归 | `render_stock_macd_v122.py` + `accept_macd_video_v122.py`：回测自检 21/21，验收 **40/40 PASS**（版本隔离后复测） |
+| V0.1 逐字节兼容性 | 用公开提交 `32418a7` 的工作树、同一份演示数据独立渲染：基线 SHA `6c556f297adc379d3a7f2c511b8f99ffae27d82c225c5fb805bbf2919196ab1f`；隔离后当前实现 SHA 与其**完全相同**（该结论在开发机上取得：同机同依赖）。作为反证，把 V1.2.3 的 `cost_domain="intervals"` 直接共享给 V1.2.2 时 SHA 为 `31cf7a5fc13cf36b4788da349ac94c39923dadc62ac6392e8ebc01a7a897f538`（解析层 403/1320 帧取整像素漂移、最大 0.59px）→ 确认变化来自共享时间轴函数，故采用显式口径隔离。**跨机器不保证逐字节相同**：另一台 Windows 机器复渲同一演示得到 `47a66f8d…`，40/40 与 2830 日/1584 帧/金额全部一致，差异来自系统字体版本；「重复出片一致」只承诺同机同依赖 |

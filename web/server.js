@@ -18,9 +18,18 @@ const engineBridge = require('./src/engineBridge');
 // 文件级上限仍是 DATA_SPEC §1.1 的 2 MiB，由校验器判定；这里是传输层上限。
 const MAX_BODY_BYTES = 5 * 1024 * 1024; // 5 MiB
 
-// 可执行策略：macd（V0.1 演示）+ timeseries / cross_section（V0.2 用户 CSV 的 A/B 两类）。
-// stock_ohlc 未列入——它受 DATA_SPEC §7.1 股票通道门禁约束。
-const EXECUTABLE_STRATEGIES = ['macd', 'timeseries', 'cross_section'];
+// 可执行策略（接口自述口径）。V0.2 起股票通道门禁已通过并实装：
+//   macd（V0.1 演示，SIMULATED）+ timeseries / cross_section（A/B 用户 CSV）
+//   + stock_ohlc（C 类用户 CSV → MACD 回测 → V1.2.3 验收交付）
+// 只保留单一真相源 STRATEGY_MODES，executableStrategies / strategies / strategyModes
+// 三处都从它派生，避免「前端可执行、health 却宣称不可执行」的口径漂移。
+const STRATEGY_MODES = {
+  macd: 'executable',
+  timeseries: 'executable',
+  cross_section: 'executable',
+  stock_ohlc: 'executable',
+};
+const EXECUTABLE_STRATEGIES = Object.keys(STRATEGY_MODES);
 
 // 修订点 1：仅回环地址，绝不监听 0.0.0.0
 const HOST = '127.0.0.1';
@@ -103,8 +112,8 @@ function getHealthInfo() {
         concurrency: 1,
       },
       executableStrategies: EXECUTABLE_STRATEGIES.slice(),
-      strategyModes: { macd: 'executable', timeseries: 'executable', cross_section: 'executable' },
-      strategies: ['macd', 'timeseries', 'cross_section'],
+      strategyModes: Object.assign({}, STRATEGY_MODES),
+      strategies: EXECUTABLE_STRATEGIES.slice(),
     },
     checks: { node, python: py, ffmpeg, depsDir, projectRoot },
   };

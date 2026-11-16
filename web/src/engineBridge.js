@@ -10,6 +10,7 @@
 //   ratio_band   → adapters/ratioBand.cjs（阶段 3 已验证，行为不变）
 //   macd         → adapters/macd.cjs（阶段 4A 新增，离线可复现）
 //   dividend_etf → adapters/dividendEtf.cjs（阶段 4B 新增，A 级离线归档 + 独立验收）
+//   stock_ohlc   → adapters/stockOhlc.cjs（V0.2 新增，用户股票 CSV → MACD → V1.2.3，USER_IMPORT 标注）
 // 阶段 4B 起三条策略均已接入，E_STRATEGY_UNSUPPORTED 仅用于未知策略。
 //
 // 约束：
@@ -30,6 +31,7 @@ const ratioBand = require('./adapters/ratioBand.cjs');
 const macd = require('./adapters/macd.cjs');
 const dividendEtf = require('./adapters/dividendEtf.cjs');
 const genericChart = require('./adapters/genericChart.cjs');
+const stockOhlc = require('./adapters/stockOhlc.cjs');
 
 const RUNS_DIR = path.join(PROJECT_ROOT, 'agent', 'runs');
 const OUTPUT_DIR = path.join(PROJECT_ROOT, 'output');
@@ -37,13 +39,15 @@ const UNIFIED = ratioBand.UNIFIED; // 兼容阶段 3 导出
 
 // 可执行策略 → 适配器
 // V0.2 预览：timeseries / cross_section 走同一个通用图表渲染器，只是数据类不同。
-// stock_ohlc 尚未注册（受 DATA_SPEC §7.1 股票通道门禁约束），请求在参数校验阶段即被拒绝。
+// V0.2 股票通道：stock_ohlc 走 adapters/stockOhlc.cjs（用户 CSV → 八段结构 → MACD 回测 → V1.2.3 视频，
+// 全链路标注 USER_IMPORT，不复用 SIMULATED 语义）。
 const ADAPTERS = {
   ratio_band: ratioBand,
   macd,
   dividend_etf: dividendEtf,
   timeseries: genericChart.timeseries,
   cross_section: genericChart.cross_section,
+  stock_ohlc: stockOhlc,
 };
 
 // 并发上限 1：当前正在执行的任务 id（同步守卫）
@@ -98,7 +102,7 @@ function tryBeginExecute(taskId) {
   }
   const adapter = ADAPTERS[status.strategy];
   if (!adapter) {
-    return { ok: false, code: 'E_STRATEGY_UNSUPPORTED', message: '该数据类别尚未接入执行链路（当前可执行：macd / timeseries / cross_section）' };
+    return { ok: false, code: 'E_STRATEGY_UNSUPPORTED', message: '该数据类别尚未接入执行链路（当前可执行：ratio_band / macd / dividend_etf / timeseries / cross_section / stock_ohlc）' };
   }
   // 先检查本任务自身状态（精确语义），再做全局并发守卫
   if (status.status === 'running') {
@@ -187,6 +191,8 @@ function runExecute(taskId, runId, adapter) {
         code, message, runId,
         hint: '请新建任务重试',
         missing: err && Array.isArray(err.missing) ? err.missing : null,
+        acceptance: err && err.acceptance ? err.acceptance : null,
+        failures: err && Array.isArray(err.failures) ? err.failures : null,
       });
       logWrite(`failed: ${code} ${message}`);
       if (err && err.missing) logWrite('missing files: ' + err.missing.join('、'));
