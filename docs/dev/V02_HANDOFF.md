@@ -88,6 +88,8 @@ npm run check:samples
 python engine_next/tests/test_timeline_bounds.py
 ```
 
+**家里环境预演（已在工厂电脑用公开仓库 HTTPS 全新克隆代跑）：** 克隆 → 切到本功能分支 → 上述两条测试全部通过（27/27、180 组 + 封版 SHA 冻结）；`npm start` 返回 HTTP 200。未安装 `deps` 时 `/api/health` 的 `renderEnv.ready=false` 属预期，按上面命令装完依赖即可出片。家里只需执行本节命令，不依赖工厂电脑的任何隐藏状态。
+
 手动走通股票链路：网页选择「导入 CSV · 股票日线」，用 `docs/samples/stock_ohlc.csv` + `docs/samples/stock_dividends.csv`，代码填 `600000`，复权口径选 `none`，确认映射后创建任务并生成视频。
 
 ## 8. 不需要重复验证的成果
