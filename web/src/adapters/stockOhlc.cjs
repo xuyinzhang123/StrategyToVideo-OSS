@@ -21,6 +21,7 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const { spawnSync } = require('node:child_process');
 const { PROJECT_ROOT } = require('../paths');
+const { parseCsv } = require('../csv');
 
 const ENGINE_DIR = path.join(PROJECT_ROOT, 'engine_next');
 const OUTPUT_DIR = path.join(PROJECT_ROOT, 'output');
@@ -80,6 +81,135 @@ function parseAcceptFailures(out) {
     if (m) items.push({ name: m[1].trim(), detail: (m[2] || '').trim() });
   }
   return items;
+}
+
+// ---- 溯源（DATA_SPEC §1.8）：每根 K 线的 OHLC、每条分红记录 → 源文件物理行号 ----
+// 与 A/B 类的 traceability 同一契约：渲染前重新解析留档，按行号回读逐字段比对，
+// 任一处对不上就拒绝交付。视频里的金额是回测按这些价格计算出来的，不是 CSV 原始数字，
+// 所以这里核对的是「输入」——价格与分红确实来自这一行；金额的推导写在 derivations。
+function toNum(s) {
+  const t = String(s == null ? '' : s).trim();
+  if (t === '') return null;
+  const n = Number(t);
+  return Number.isFinite(n) ? n : null;
+}
+
+function clip(s, n) {
+  const t = String(s == null ? '' : s);
+  return t.length > (n || 160) ? t.slice(0, (n || 160) - 1) + '…' : t;
+}
+
+function buildStockTrace(model, sourceText, dividendText) {
+  const parsed = parseCsv(sourceText);
+  if (!parsed.ok) {
+    return { ok: false, message: `原始 CSV 留档无法解析（${parsed.code}），无法核对溯源` };
+  }
+  const header = parsed.records[0];
+  if (!header) return { ok: false, message: '原始 CSV 留档没有表头，无法核对溯源' };
+  const byLine = new Map();
+  for (const rec of parsed.records) byLine.set(rec.line, rec);
+
+  const mapping = model.meta.mapping || {};
+  const colOf = (field) => {
+    const name = mapping[field];
+    if (!name) return -1;
+    return header.fields.findIndex((f) => f.text.trim().toLowerCase() === String(name).trim().toLowerCase());
+  };
+  const cols = { date: colOf('date'), open: colOf('open'), high: colOf('high'), low: colOf('low'), close: colOf('close') };
+  for (const f of ['date', 'open', 'high', 'low', 'close']) {
+    if (cols[f] < 0) return { ok: false, message: `留档表头里找不到「${f}」列（映射：${mapping[f] || '未提供'}）` };
+  }
+
+  const trace = [];
+  const problems = [];
+  for (const b of model.bars || []) {
+    const rec = byLine.get(b.line);
+    if (!rec) { problems.push(`K线 ${b.date} 标注第 ${b.line} 行，但留档里没有这一行`); continue; }
+    const d = rec.fields[cols.date].text.trim();
+    const prices = ['open', 'high', 'low', 'close'].map((k) => toNum(rec.fields[cols[k]].text));
+    const same = d === b.date && ['open', 'high', 'low', 'close'].every((k, i) => (
+      prices[i] !== null && Math.abs(prices[i] - b[k]) < 1e-9
+    ));
+    if (!same) {
+      problems.push(`第 ${b.line} 行回读不一致（期望 ${b.date} O/H/L/C=${b.open}/${b.high}/${b.low}/${b.close}）`);
+      continue;
+    }
+    trace.push({
+      kind: 'bar',
+      label: `K线 ${b.date}`,
+      date: b.date,
+      value: b.close,
+      sourceLine: b.line,
+      sourceFile: 'source.csv',
+      sourceText: clip(rec.fields.map((f) => f.text).join(',')),
+    });
+  }
+
+  // 分红表：行号属于 dividend.csv（独立文件），因此逐条带 sourceFile，避免与行情行号混淆
+  const actions = model.actions || [];
+  if (actions.length) {
+    if (!dividendText) {
+      problems.push('模型含分红事件，但缺少分红表留档，无法核对');
+    } else {
+      const dp = parseCsv(dividendText);
+      if (!dp.ok || !dp.records.length) {
+        problems.push(`分红表留档无法解析（${dp.ok ? '无表头' : dp.code}）`);
+      } else {
+        const dh = dp.records[0].fields.map((f) => f.text.trim().toLowerCase());
+        const exCol = dh.indexOf('ex_date');
+        const cashCol = dh.indexOf('cash_per_share');
+        if (exCol < 0 || cashCol < 0) {
+          problems.push('分红表留档缺少 ex_date / cash_per_share 列');
+        } else {
+          const divByLine = new Map();
+          for (const rec of dp.records) divByLine.set(rec.line, rec);
+          for (const a of actions) {
+            const rec = divByLine.get(a.line);
+            if (!rec) { problems.push(`分红 ${a.date} 标注分红表第 ${a.line} 行，但留档里没有这一行`); continue; }
+            const ex = rec.fields[exCol].text.trim();
+            const cash = toNum(rec.fields[cashCol].text);
+            if (ex !== a.date || cash === null || Math.abs(cash - a.cashPerShare) > 1e-9) {
+              problems.push(`分红表第 ${a.line} 行回读不一致（期望 ${a.date} / ${a.cashPerShare}）`);
+              continue;
+            }
+            trace.push({
+              kind: 'bar',
+              label: `分红 ${a.date}`,
+              date: a.date,
+              value: a.cashPerShare,
+              sourceLine: a.line,
+              sourceFile: 'dividend.csv',
+              sourceText: clip(rec.fields.map((f) => f.text).join(',')),
+            });
+          }
+        }
+      }
+    }
+  }
+
+  const expected = (model.bars || []).length + actions.length;
+  if (problems.length || trace.length !== expected) {
+    return {
+      ok: false,
+      message: `溯源核对失败（${problems.length || expected - trace.length} 处）：${problems.slice(0, 3).join('；') || '记录数不符'}`,
+    };
+  }
+  return {
+    ok: true,
+    data: {
+      mapping,
+      trace,
+      verification: {
+        points: expected,
+        verified: trace.length,
+        ok: true,
+        method: '解析任务目录 source.csv / dividend.csv，按行号回读并逐字段比对（K 线日期与 OHLC、分红除息日与每股现金红利）',
+      },
+      derivations: [
+        '视频中的资产金额 = 回测按上述 CSV 价格、分红与费用规则计算，不是 CSV 里的原始数字；本清单核对的是输入价格与分红的源行',
+      ],
+    },
+  };
 }
 
 // ---- 归一化模型 → 引擎八段结构（DATA_SPEC §4.4） ----
@@ -211,7 +341,8 @@ function applyUserImportCopy(vidCfg, model, fileName, sha12) {
     // 片尾总述同样不能笼统写「已扣除红利税」；有分红时保留封版文案不动。
     copy.outro_top = '同样 10 万元 · {start} → {end} · 已扣除交易费用（未提供分红表，无红利税）';
   }
-  copy.footer_left = `数据：用户导入 · ${fileName} · SHA ${sha12} · ${adjustLabel}`;
+  copy.footer_left = `数据：用户导入 · ${fileName} · SHA ${sha12} · ${adjustLabel}`
+    + ((m.sourceNote || '').trim() ? ` · 来源：${String(m.sourceNote).trim()}` : '');
   copy.intro_disclaimer = `本视频使用用户导入数据（${fileName}），不代表真实行情或实盘交易，不预示未来收益，不构成投资建议`;
   copy.outro_risk = `本视频使用用户导入数据（${fileName}），不代表真实行情，不构成投资建议。`;
   vidCfg.video.encoder = Object.assign({}, vidCfg.video.encoder, {
@@ -256,6 +387,15 @@ async function execute(ctx) {
     }
     logWrite(`dividend.csv sha256=${divSha.slice(0, 12)}`);
   }
+
+  // 溯源核对（§1.8）：按行号回读 source.csv / dividend.csv，逐字段比对 K 线与分红。
+  // 必须放在渲染之前——对不上就不该浪费一次渲染，更不该交付无法回溯的视频。
+  const divTextForTrace = fs.existsSync(divPath) ? fs.readFileSync(divPath, 'utf8') : '';
+  const tr = buildStockTrace(model, fs.readFileSync(sourcePath, 'utf8'), divTextForTrace);
+  if (!tr.ok) {
+    throw { code: 'E_TRACE_FAILED', message: `${tr.message}（已停止交付，未生成可下载视频）` };
+  }
+  logWrite(`trace ok: ${tr.data.verification.verified} 条记录（K线+分红）全部定位到留档行号`);
   onStep(0, 'done');
 
   // ---- 1) 生成 01_data（八段结构 + 分红日历） ----
@@ -366,6 +506,30 @@ async function execute(ctx) {
   const S = readJson(summaryPath);
   const R = readJson(reportPath);
   const signalsPath = path.join(btDir, 'signals.csv');
+
+  // 溯源清单（与 A/B 类同契约）：源文件指纹 + 逐条 {位置, 数值, sourceLine, sourceText} + 视频指纹。
+  // request.source 是创建任务时落盘的留档元数据（SHA / 行数 / 字节数），不在此重算，保证三处一致。
+  const videoSha = sha256File(mp4);
+  const videoBytes = fs.statSync(mp4).size;
+  const traceability = Object.assign({
+    taskId,
+    generatedAt: new Date().toISOString(),
+    source: Object.assign({}, request.source || {}, { archivedAs: 'source.csv' }),
+    dividend: request.dividend || null,
+    video: {
+      file: 'video.mp4',
+      sha256: videoSha,
+      bytes: videoBytes,
+      frames: R.frames || null,
+      fps: R.fps || null,
+      durationSec: R.durationSec || null,
+      width: R.width || null,
+      height: R.height || null,
+    },
+  }, tr.data);
+  fs.writeFileSync(path.join(taskDir, 'traceability.json'), JSON.stringify(traceability, null, 2), 'utf8');
+  logWrite(`video sha256=${videoSha}`);
+
   const result = {
     initialCapital: S.meta.initialCapital,
     holdFinal: S.hold.final,
@@ -389,11 +553,20 @@ async function execute(ctx) {
       fps: R.fps || null,
       frames: R.frames || null,
       durationSec: R.durationSec || null,
+      sha256: videoSha,
+      bytes: videoBytes,
     },
+    trace: tr.data.verification,
     verification: {
       script: 'engine_next/tests/accept_macd_video_v123.py',
       pass: acceptCounts ? acceptCounts.pass : null,
       fail: acceptCounts ? acceptCounts.fail : null,
+    },
+    traceability: {
+      file: 'traceability.json',
+      sourceLines: (request.source && request.source.lines) || null,
+      mapping: model.meta.mapping,
+      derivations: tr.data.derivations,
     },
   };
   const strategySpecific = {
@@ -426,6 +599,7 @@ module.exports = {
   SEALED_FILES,
   buildStockDaily,
   buildDividendCalendar,
+  buildStockTrace,
   applyUserImportCopy,
   applyUserImportLayout,
   execute,

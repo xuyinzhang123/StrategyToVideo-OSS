@@ -350,6 +350,23 @@ def text(d, xy, s, size, color=TXT, bold=False, anchor=None):
     d.text(xy, s, font=font(size, bold), fill=color, anchor=anchor)
 
 
+def fit_text(s, size, max_w, min_size=13):
+    """把一行文字压进 max_w：先缩字号，仍放不下才截断并加省略号。
+    只用于 V1.2.3 的用户导入文案（文件名 / 来源说明可能很长）；
+    V1.2.2 封版演示不经过这里，画面保持逐字节不变。"""
+    s = "" if s is None else str(s)
+    sz = size
+    while sz > min_size and font(sz).getlength(s) > max_w:
+        sz -= 1
+    if font(sz).getlength(s) <= max_w:
+        return s, sz
+    f = font(sz)
+    cut = s
+    while cut and f.getlength(cut + "…") > max_w:
+        cut = cut[:-1]
+    return cut + "…", sz
+
+
 def rrect(d, box, fill=None, outline=None, width=2, radius=14):
     d.rounded_rectangle(box, radius=radius, fill=fill, outline=outline, width=width)
 
@@ -554,7 +571,8 @@ def build_base():
     d.rectangle([0, 0, W, hh], fill=PANEL)
     d.line([0, hh, W, hh], fill=GRID, width=2)
     text(d, (48, 16), cp(CP["header_title"]), 34, TXT, True)
-    text(d, (48, 62), cp(CP["header_sub"]), 18, MUTED)
+    sub_s, sub_sz = fit_text(cp(CP["header_sub"]), 18, W - 96)
+    text(d, (48, 62), sub_s, sub_sz, MUTED)
     text(d, (W - 48, 38), cp(CP["header_dates"]), 24, MUTED, anchor="rm")
 
     # 主图图例行
@@ -611,8 +629,12 @@ def build_base():
         text(d, (L - 16, y), lab, 15, FAINT, anchor="rm")
 
     fy = CH["footer_y"]
-    text(d, (L, fy), cp(CP["footer_left"]), 17, FAINT)
-    text(d, (R, fy), cp(CP["footer_right"]), 17, EX["disclaimer"], anchor="ra")
+    # 左侧可能含很长的文件名 / 来源说明：给右侧免责声明留出实测宽度，再压左侧。
+    right_s = cp(CP["footer_right"])
+    right_w = font(17).getlength(right_s) + 24
+    left_s, left_sz = fit_text(cp(CP["footer_left"]), 17, (R - L) - right_w)
+    text(d, (L, fy), left_s, left_sz, FAINT)
+    text(d, (R, fy), right_s, 17, EX["disclaimer"], anchor="ra")
     return im
 
 

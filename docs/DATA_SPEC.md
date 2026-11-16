@@ -1,8 +1,8 @@
-# 用户数据契约（V0.2 · Draft 3）
+# 用户数据契约（V0.2 · Draft 4）
 
-> 状态：**A / B 类已实现并跑通出片，含原始 CSV 留档、SHA-256 指纹与行号溯源；C 类（股票日线）在 V0.2 开发分支已实装并通过独立验收交付出片（V1.2.3），复权口径仅支持 `adjust=none`（§7.2）**。
+> 状态：**A / B / C 三类均已实现并跑通出片，含原始 CSV 留档、SHA-256 指纹与行号溯源；C 类（股票日线）走 V1.2.3 并通过 41 项独立验收交付，复权口径仅支持 `adjust=none`（§7.2）**。
 > 适用范围：Open Source V0.1 之后新增的「用户导入 CSV」通道（V0.2）。
-> 上游依据：**Issue #1「v0.2 / 1：用户 CSV 输入到本地视频的端到端流程」**（open）。该 Issue 位于私人主仓库，未随开源包公开，故此处不写链接；`AC-01 ~ AC-18`（§9）即对应该 Issue 的验收标准。
+> 上游依据：**Issue #1「v0.2 / 1：用户 CSV 输入到本地视频的端到端流程」**（open）。该 Issue 位于私人主仓库，未随开源包公开，故此处不写链接；`AC-01 ~ AC-20`（§9）即对应该 Issue 的验收标准。
 >
 > **Draft 1 → Draft 2 变更记录（均为修正，非扩展）**
 > 1. 修正千分位数字的接受/拒绝规则：新增 `E_THOUSANDS_SEPARATOR`，并把「引号内严格千分位」与「其他含逗号形态」分开；补上 RFC 4180 引号规则（否则千分位判定不可达，见 §1.1 / §1.2）。
@@ -15,6 +15,12 @@
 > 2. 新增 §1.9：确定性（同输入 → 逐字节相同 MP4）与任务删除语义（连原始 CSV 与视频一起删除）。
 > 3. 页脚不再显示导入时间，改显示源文件 SHA-256 前 12 位——时间戳会破坏确定性。
 > 4. §6.1 新增 `E_SOURCE_MISSING` / `E_TRACE_MISMATCH` / `E_TRACE_FAILED` / `E_TRACE_MISSING`；§9 新增 AC-15 ~ AC-18。
+>
+> **Draft 3 → Draft 4 变更记录（发布前代码审查的三处口径修正，不扩展功能）**
+> 1. **C 类补齐溯源**：股票通道此前只留档 + SHA，不写 `traceability.json`，网页溯源面板对股票任务为空。现与 A/B 同契约：逐根 K 线的日期与 OHLC、逐条分红的除息日与每股现金红利 → `source.csv` / `dividend.csv` 行号；渲染前回读核对，不符即 `E_TRACE_FAILED`（§1.8）。
+> 2. **页脚兑现「来源说明」**：表单写明「会写进视频页脚」，但股票通道的 `copy.footer_left` 未使用 `sourceNote`。现写入页脚，并对页脚左段与页头副标题做宽度自适应（缩字号→省略号），避免长文件名/长来源压到右侧免责声明。
+> 3. **`/api/health` 与实际可执行能力对齐**：`executableStrategies` / `execution.strategies` / `strategyModes` 统一由 `STRATEGY_MODES` 派生并包含 `stock_ohlc`，消除「前端可执行、接口宣称不可执行」的矛盾；新增 `npm run check:api` 守这条口径（AC-20）。
+> 4. `check:samples` 增至 30 项（新增股票溯源：无分红 260/260、含分红 262/262、篡改一行即拒绝）；§9 新增 AC-19 / AC-20。
 
 ---
 
@@ -161,8 +167,9 @@ Issue #1 的第四条要求是「视频里的数字能回溯到原始数据」�
 | 画面呈现 | 视频页脚显示 `文件名 + sha256 前 12 位`。**页脚不显示导入时间**：时间戳会让同一份数据在不同日期出片得到不同字节，破坏确定性（见 §1.9） |
 | 源行号 | 归一化模型里每个数据点/条目带 `line`（源文件物理行号，1 起，表头是第 1 行） |
 | 行数口径 | `source.lines` / `meta.sourceLines` 是**源文件文本行数**（含表头，文件末尾换行不额外计一行）；`source.dataLines` 是**实际数据记录数**（不含表头，跳过空行），与 `meta.rowCount` 同义。两者在网页任务详情分别展示，行号溯源仍按物理行号，不因统计口径变化而改写 |
-| 溯源清单 | 渲染成功后写 `web/tasks/<taskId>/traceability.json`：源文件指纹、映射、逐条 `{位置, 数值, sourceLine, sourceText}`、视频 sha256 |
-| 回读核对 | 渲染前**重新解析** `source.csv`，按行号取回该行，逐字段比对日期/名称/数值；任一处不符 → `E_TRACE_FAILED`，**拒绝交付** |
+| 溯源清单 | 渲染成功后写 `web/tasks/<taskId>/traceability.json`：源文件指纹、映射、逐条 `{位置, 数值, sourceLine, sourceFile, sourceText}`、视频 sha256。A/B 类逐数据点；C 类逐根 K 线（日期 + OHLC）与逐条分红（除息日 + 每股现金红利，`sourceFile=dividend.csv`） |
+| 回读核对 | 渲染前**重新解析** `source.csv`（C 类另加 `dividend.csv`），按行号取回该行，逐字段比对：A/B 比对日期/名称/数值，C 比对 K 线日期与 OHLC、分红除息日与每股现金红利；任一处不符 → `E_TRACE_FAILED`，**拒绝交付** |
+| 推导量 | 视频里的资产金额、收益率、信号标签由回测按输入计算，**不是 CSV 原始数字**；`traceability.json.derivations` 明写这层关系，清单只声称「输入来自这一行」，不假装画面数字能逐字反查 CSV |
 | 留档被改动 | `source.csv` 的 SHA-256 与创建时记录的不一致 → `E_TRACE_MISMATCH`，拒绝交付 |
 | 留档缺失 | 任务目录没有 `source.csv` → `E_SOURCE_MISSING`，拒绝交付（宁可不给视频，也不给一份无法追溯的视频） |
 | 隐私边界 | 留档只在本机任务目录，`.`gitignore` 已排除 `web/tasks/`；不上传、不进版本控制。删除任务即删除留档 |
@@ -610,16 +617,17 @@ C 类在下列门禁全部通过前不开放。**2026-11-16 更新：G-1 ~ G-6 �
 | `engine_next/render_stock_macd_v123.py` | 用户 CSV 专用渲染器（V1.2.3）：在 V1.2.2 基础上只改「短样本时间轴成本域（`video_events.py` 的 `cost_domain="intervals"` 显式开关）+ 浮板按本次资产轨迹自适应定位 + 报告真实浮板矩形」；V0.1 演示继续用 `render_stock_macd_v122.py`（不传开关 → 封版 `cost_domain="days"`），两者共享回测产物与文案 token 表 |
 | `engine_next/tests/accept_macd_video_v123.py` | 用户 CSV 独立验收（41 项）：与 V1.2.2 逐条同源，仅三处按本次数据推导的适配（首个 MACD 点不变量 / 浮板矩形读报告 / anchor≠forced-top）；演示验收仍用 `accept_macd_video_v122.py`（40 项） |
 | `engine_next/tests/test_timeline_bounds.py` | 时间轴回归：① V1.2.3 口径 6 种事件分布 × 10 种交易日数 × 3 种帧数 = 180 组，断言首末覆盖/单调/零位移=0/最长死停=0；② 封版口径（默认 `cost_domain="days"`）3 组参数的 POS 序列 SHA 逐位冻结，防止修短样本时把 V0.1 已发布画面改掉 |
-| `web/server.js` | 传输上限已上调：`MAX_BODY_BYTES = 5 MiB`（含 JSON 转义余量）；**文件级**上限仍是本契约的 2 MiB，由校验器判定 |
+| `web/server.js` | 传输上限：`MAX_BODY_BYTES = 5 MiB`（含 JSON 转义余量），**文件级**上限仍是本契约的 2 MiB，由校验器判定；`/api/health` 的能力自述由 `STRATEGY_MODES` 单一真相源派生（含 `stock_ohlc`），与前端可执行能力一致（AC-20） |
 | `web/src/validation.js` | 已注册 `macd` / `timeseries` / `cross_section` / `stock_ohlc`（V0.2 起）；C 类额外放行 `symbol` / `name` / `adjust` / `dividendCsvText` |
-| `web/src/adapters/stockOhlc.cjs` | C 类适配器（V0.2）：`import.json` → 八段结构 + 分红日历 → 复用封版回测 + **V1.2.3 渲染/验收**；核对 `source.csv` / `dividend.csv` SHA；解掉演示配置的浮板固定 y1；写 `conversion_manifest.json` 与 `accept_failures.json`；视频文案走 USER_IMPORT 档 |
 | `web/src/csv.js` | RFC 4180 子集解析：引号、`""` 转义、BOM、CRLF/LF/CR、分隔符检测；返回「原始文本 + 是否带引号 + 行号」；另提供 `countTextLines`（末尾换行不虚增）与 `countDataRecords`（不含表头/跳过空行）两个行数口径 |
-| `web/src/import/mapping.js` | §1.7 映射解析、别名兜底、冲突检测 |
-| `web/src/import/validate.js` | 通用规则 + A/B 两类校验，输出 §2.2 / §3.2 归一化结构 |
+| `web/src/import/mapping.js` | §1.7 映射解析、别名兜底、冲突检测；错误文案使用中文标签（日期/数值/名称…），不把内部键名抛给用户 |
+| `web/src/import/validate.js` | 通用规则 + A/B/C 三类校验，输出 §2.2 / §3.2 / §4.4 结构；C 类 `buildStockOhlc` 做 OHLC 合法性与分红三日期校验 |
 | `web/src/adapters/genericChart.cjs` | A/B 适配器：归一化模型 → 通用渲染器 → MP4；写 `traceability.json`，按行号回读 `source.csv`（§1.8） |
 | `engine_next/render_generic_chart.py` | 通用图表渲染器（折线 / 条形），仅用 `deps/` 中的 Pillow + imageio-ffmpeg；页脚打源文件 SHA-256 指纹 |
-| `tools/check_samples.cjs` | 逐份样例的预期结果复核（`npm run check:samples`），对应 AC-11 |
 | `tools/check_determinism.cjs` | 两次独立出片 SHA-256 对拍（`npm run check:determinism`），对应 AC-17 |
+| `web/src/adapters/stockOhlc.cjs` | C 类适配器（V0.2）：`import.json` → 八段结构 + 分红日历 → 复用封版回测 + **V1.2.3 渲染/验收**；核对 `source.csv` / `dividend.csv` SHA；按行号回读 K 线与分红并写 `traceability.json`（§1.8）；解掉演示配置的浮板固定 y1；写 `conversion_manifest.json` 与 `accept_failures.json`；视频文案走 USER_IMPORT 档（页脚含 `sourceNote`） |
+| `tools/check_samples.cjs` | 逐份样例的预期结果复核（`npm run check:samples`），对应 AC-11；含 D 段股票溯源（无分红 / 含分红 / 篡改一行即拒绝） |
+| `tools/check_api_contract.cjs` | `/api/health` 能力口径断言（`npm run check:api`），对应 AC-20：`executableStrategies` / `execution.strategies` / `strategyModes` 同源且包含 `stock_ohlc`，未开放的框架占位不在清单内 |
 | `web/src/taskManager.js` | 创建任务时写 `source.csv` + `status.source`；`deleteTask` 删除任务目录（§1.9） |
 | `web/server.js` | `DELETE /api/tasks/:id`、`GET /api/tasks/:id/traceability`、`GET /api/tasks/:id/source` |
 
@@ -647,6 +655,8 @@ C 类在下列门禁全部通过前不开放。**2026-11-16 更新：G-1 ~ G-6 �
 | **AC-16** | 行号溯源：每个数据点都能定位到 `source.csv` 的物理行号，且按该行号回读的字段值与画面数字一致 | `traceability.json` 的 `trace[].sourceLine` / `verification` |
 | **AC-17** | 确定性：同一 CSV 两次独立出片得到逐字节相同的 MP4 | `npm run check:determinism` |
 | **AC-18** | 删除任务即删除原始 CSV 与视频（任务目录 + 运行目录），不残留 | `DELETE /api/tasks/<id>` 后目录检查 |
+| **AC-19** | C 类同样可溯源：`traceability.json` 逐根 K 线（日期 + OHLC）与逐条分红（除息日 + 每股现金红利）定位到 `source.csv` / `dividend.csv` 行号；留档任一行被改动即 `E_TRACE_FAILED` | `stock_ohlc.csv`（260/260）、`stock_ohlc.csv + stock_dividends.csv`（262/262）；`npm run check:samples` D 段 |
+| **AC-20** | `/api/health` 的能力自述与实际可执行策略一致：`executableStrategies` / `execution.strategies` / `strategyModes` 同源且包含 `stock_ohlc`，未开放的框架占位不在清单内 | `npm run check:api` |
 
 ---
 

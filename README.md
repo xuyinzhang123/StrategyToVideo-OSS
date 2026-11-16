@@ -53,9 +53,9 @@ npm start
 4. 在浏览器打开 **http://127.0.0.1:8080/**。
 5. 选择 **MACD 演示策略（模拟数据）** → **创建任务** → **确认并生成视频**。完成后即可在本地网页预览或下载 MP4。
 6. （V0.2）也可选择 **导入 CSV · 时间序列**、**导入 CSV · 分类对比** 或 **导入 CSV · 股票日线**，选一个本地 CSV，确认字段映射后创建任务。股票日线还需填写 6 位证券代码、复权口径（仅支持未复权）与可选分红 CSV。想先试通流程，可直接用 [`docs/samples/`](docs/samples/) 里的样例文件。
-7. （V0.2）出片后，工作区会显示**数据溯源**：画面上的每个数字对应留档 CSV 的第几行、原样内容是什么，并可下载留档的原始 CSV。删除任务会连同原始 CSV 与视频一起清理。
+7. （V0.2）出片后，工作区会显示**数据溯源**：时间序列/分类对比的每个数据点、股票日线的每根 K 线与每条分红记录，都对应留档 CSV 的第几行、原样内容是什么，并可下载留档的原始 CSV。股票视频里的金额与信号是回测按这些输入推导的，不是 CSV 里的原始数字——溯源清单核对的是输入本身。删除任务会连同原始 CSV 与视频一起清理。
 
-数据留档与可复现性：创建任务时，原始 CSV 会原样存到 `web/tasks/<任务ID>/source.csv`（只在本机，已被 `.gitignore` 排除），并计算 SHA-256；视频页脚显示该指纹前 12 位。同一份 CSV 重复出片应得到**逐字节相同**的 MP4，可用 `npm run check:determinism` 自行对拍；样例规则的断言入口是 `npm run check:samples`。
+数据留档与可复现性：创建任务时，原始 CSV 会原样存到 `web/tasks/<任务ID>/source.csv`（只在本机，已被 `.gitignore` 排除），并计算 SHA-256；视频页脚显示该指纹前 12 位。同一份 CSV 重复出片应得到**逐字节相同**的 MP4，可用 `npm run check:determinism` 自行对拍；样例规则与股票溯源的断言入口是 `npm run check:samples`，`/api/health` 能力口径的断言入口是 `npm run check:api`。
 
 安装时会从 PyPI 获取 Pillow 和 imageio-ffmpeg；**依赖安装完成后，回测、渲染和视频生成均可离线进行**。渲染器会通过 `imageio_ffmpeg.get_ffmpeg_exe()` 查找编码器，无需手工配置 FFmpeg 的 PATH。建议按上述命令将依赖装入项目内的 `deps/`，否则 `/api/health` 的 `renderEnv.ready` 状态可能显示 `false`。
 
@@ -119,13 +119,14 @@ node tools/gen_demo_data.cjs
 - **模拟数据生成器：** `tools/gen_demo_data.cjs`
 - **任务产物：** `output/web_<taskId>/`；任务状态与视频副本：`web/tasks/<taskId>/`
 
-两条可自行运行的检查：
+可自行运行的检查：
 
 ```powershell
 npm run check:samples
+npm run check:api
 ```
 
-按 `docs/DATA_SPEC.md` 的真实规则跑一遍 `docs/samples/` 下的全部样例，含应通过、应拒绝、千分位规则与换表头变体。网页生成视频时会自动调用独立验收脚本；也可以对已完成任务手动复核：
+`check:samples` 按 `docs/DATA_SPEC.md` 的真实规则跑一遍 `docs/samples/` 下的全部样例，含应通过、应拒绝、千分位规则、换表头变体与股票通道的 K 线/分红溯源（篡改一行即拒绝）。`check:api` 断言 `/api/health` 的 `executableStrategies` 与实际可执行策略一致（包含 `stock_ohlc`）。网页生成视频时会自动调用独立验收脚本；也可以对已完成任务手动复核：
 
 ```powershell
 python engine_next/tests/accept_macd_video_v122.py --run web_<taskId> --source web_<taskId>

@@ -10,10 +10,21 @@ V0.1 只提供 SIMULATED 模拟数据的固定 MACD 演示（V1.2.2）。V0.2 �
 
 ## 已完成的验收与复现命令
 
-- `npm run check:samples`：27/27 PASS
+- `npm run check:samples`：30/30 PASS（含 C 类逐根 K 线与逐条分红的行号溯源）
+- `npm run check:api`：6/6 PASS（`/api/health` 能力自述与实际可执行策略一致）
 - `python engine_next/tests/test_timeline_bounds.py`：180 组边界 + 封版 POS SHA 冻结 PASS
 - 股票 260 日样例：回测自检 21/21，独立验收 41/41 PASS，两次出片 SHA 一致
 - `npm run check:determinism`：重复出片 SHA 逐字节一致
+
+## 本轮代码审查的修复（Draft 评审前自查）
+
+按「用户能否可靠使用 / 数据与回测可靠性 / 发布内容准确性」三个角度做了代码审查与针对性测试，未发现阻断项，修复三项：
+
+1. 股票任务此前不写 `traceability.json`，溯源端点 404、页面无溯源面板。现补 `buildStockTrace()`：渲染前按行回读 `source.csv` 与 `dividend.csv` 逐字段比对，不符即 `E_TRACE_FAILED` 拒绝交付；实测 260/260、262/262，篡改一行即被拒。
+2. 股票表单承诺的「数据来源说明」未进入视频，现写入页脚左段；并为副标题/页脚加宽度自适应，长文件名与长来源不压右侧免责声明。
+3. `/api/health` 的 `executableStrategies` 缺 `stock_ohlc`，与前端可执行能力矛盾；改为由单一常量派生，并新增 `check:api` 守护。
+
+因页脚文案变更，股票成片 SHA 较此前版本变化属预期（确定性指同版本同输入两次一致，已复验）。
 
 ## V0.1 兼容性
 
@@ -30,7 +41,7 @@ V1.2.2 的默认时间轴成本域保持封版口径，V0.1 演示成片 SHA 与
 ## 合并与发布前检查清单
 
 - [ ] 本 PR 通过评审，无未解决的阻断意见
-- [ ] 在干净工作树复跑 `check:samples`、时间轴回归、V1.2.3 41 项验收
+- [ ] 在干净工作树复跑 `check:samples`、`check:api`、时间轴回归、V1.2.3 41 项验收
 - [ ] 确认 main 未被本分支改动、无私有数据 / 渲染视频 / deps 入库
 - [ ] 抽帧复核 USER_IMPORT 文案与无分红副标题
 - [ ] 由维护者合并并单独发布 Release（本 PR 不执行）

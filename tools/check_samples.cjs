@@ -250,6 +250,48 @@ for (const v of variants) {
   console.log(`  ${same ? 'PASS' : 'FAIL'}  ${v.name}`);
 }
 
+// ---------- D. 股票通道溯源（V0.2 · 与 A/B 同契约） ----------
+
+console.log('\n=== D. 股票通道溯源（K线 / 分红 → 源行号）===');
+const { buildStockTrace } = require('../web/src/adapters/stockOhlc.cjs');
+
+const stockText = readSample('stock_ohlc.csv');
+const rNoDiv = validateImport({
+  dataClass: 'stock_ohlc', csvText: stockText, fileName: 'stock_ohlc.csv',
+  symbol: '600000', name: '样例标的A', adjust: 'none',
+});
+const tNoDiv = rNoDiv.ok ? buildStockTrace(rNoDiv.model, stockText, '') : { ok: false, message: rNoDiv.code };
+check('stock trace: bars only',
+  tNoDiv.ok && tNoDiv.data.verification.verified === rNoDiv.model.bars.length
+    && tNoDiv.data.verification.verified === tNoDiv.data.verification.points
+    && tNoDiv.data.trace[0].sourceLine === 2
+    && tNoDiv.data.trace[0].sourceFile === 'source.csv',
+  tNoDiv.ok ? `verified=${tNoDiv.data.verification.verified}` : tNoDiv.message);
+console.log(`  ${tNoDiv.ok ? 'PASS' : 'FAIL'}  无分红：${rNoDiv.ok ? rNoDiv.model.bars.length : '?'} 根 K 线全部回读到行号（首个=第 2 行）`);
+
+const divText = readSample('stock_dividends.csv');
+const rDiv = validateImport({
+  dataClass: 'stock_ohlc', csvText: stockText, fileName: 'stock_ohlc.csv',
+  symbol: '600000', name: '样例标的A', adjust: 'none', dividendCsvText: divText,
+});
+const tDiv = rDiv.ok ? buildStockTrace(rDiv.model, stockText, divText) : { ok: false, message: rDiv.code };
+check('stock trace: bars + dividends',
+  tDiv.ok
+    && tDiv.data.verification.verified === rDiv.model.bars.length + rDiv.model.actions.length
+    && tDiv.data.trace.some((x) => x.sourceFile === 'dividend.csv')
+    && tDiv.data.trace.filter((x) => x.sourceFile === 'dividend.csv').length === rDiv.model.actions.length,
+  tDiv.ok ? `verified=${tDiv.data.verification.verified}` : tDiv.message);
+console.log(`  ${tDiv.ok ? 'PASS' : 'FAIL'}  含分红：K 线 + 分红逐条回读，分红行标记 dividend.csv`);
+
+// 篡改一行收盘价：溯源必须拒绝（拒绝交付而不是静默放行）
+const tamperedLines = stockText.split(/\r?\n/);
+const tf = tamperedLines[1].split(',');
+tf[4] = String(Number(tf[4]) + 0.01);
+tamperedLines[1] = tf.join(',');
+const tBad = rNoDiv.ok ? buildStockTrace(rNoDiv.model, tamperedLines.join('\n'), '') : { ok: false, message: 'n/a' };
+check('stock trace: tamper detected', !tBad.ok && /不一致/.test(String(tBad.message)), tBad.message);
+console.log(`  ${!tBad.ok && /不一致/.test(String(tBad.message)) ? 'PASS' : 'FAIL'}  留档被改动（第 2 行收盘价 +0.01）→ 溯源拒绝`);
+
 // ---------- 汇总 ----------
 
 const total = pass + failures.length;
@@ -258,6 +300,6 @@ if (failures.length) {
   for (const f of failures) console.log('  FAIL ' + f);
   process.exitCode = 1;
 } else {
-  notes.push('全部样例与规则单点符合 DATA_SPEC Draft 3。');
+  notes.push('全部样例与规则单点符合 DATA_SPEC Draft 4。');
   for (const n of notes) console.log('  ' + n);
 }

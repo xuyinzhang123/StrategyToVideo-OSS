@@ -846,7 +846,8 @@
         var v = tr.verification || {};
         var rows = (tr.trace || []).slice(0, 8).map(function (t) {
           var pos = t.kind === 'bar' ? t.label : (t.series + ' · ' + t.date);
-          return '<tr><td>第 ' + t.sourceLine + ' 行</td><td>' + escapeHtml(pos) + '</td><td>'
+          var at = t.sourceFile === 'dividend.csv' ? '分红表第 ' : '第 ';
+          return '<tr><td>' + at + t.sourceLine + ' 行</td><td>' + escapeHtml(pos) + '</td><td>'
             + escapeHtml(fmtNum(t.value)) + '</td><td>' + escapeHtml(t.sourceText || '') + '</td></tr>';
         }).join('');
         var more = (tr.trace || []).length > 8
@@ -854,7 +855,7 @@
           : '';
         wsTrace.innerHTML = '<details open><summary>数据溯源：' + (v.verified || 0) + ' / ' + (v.points || 0)
           + ' 个数据点已按行号回读核对（源文件 sha256:' + String(tr.source.sha256).slice(0, 12) + '…）</summary>'
-          + '<table class="trace-table"><thead><tr><th>源文件</th><th>位置</th><th>数值</th><th>该行原文</th></tr></thead>'
+          + '<table class="trace-table"><thead><tr><th>源文件位置</th><th>位置</th><th>数值</th><th>该行原文</th></tr></thead>'
           + '<tbody>' + rows + '</tbody></table>' + more
           + '<p class="trace-foot"><a href="/api/tasks/' + encodeURIComponent(task.taskId)
           + '/source">下载留档的原始 CSV</a> · 视频 sha256:' + String(tr.video.sha256).slice(0, 16) + '…</p></details>';
