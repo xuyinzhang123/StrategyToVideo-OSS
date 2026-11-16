@@ -110,7 +110,7 @@ python engine_next/tests/test_timeline_bounds.py
 feat(v0.2): Import user CSV data and generate animated backtest videos
 ```
 
-建议正文（可直接粘贴，Base `main` / Head `feat/v0.2-stock-ohlc-csv` / Draft）：
+建议正文（Base `main` / Head `feat/v0.2-stock-ohlc-csv` / Draft）。**可直接用于 `--body-file` 的正文文件：`docs/dev/V02_PR_BODY.md`（内容与下方一致，以该文件为准）：**
 
 ````markdown
 ## V0.2 相对 V0.1 新增
@@ -154,11 +154,11 @@ V1.2.2 的默认时间轴成本域保持封版口径，V0.1 演示成片 SHA 与
 创建方式（任选其一）：
 
 ```powershell
-# 方式 A：网页打开下面的 URL，选择 Draft pull request，粘贴上面的标题与正文
+# 方式 A：网页打开下面的 URL，选择 Draft pull request，粘贴标题与 docs/dev/V02_PR_BODY.md 的内容
 Start-Process 'https://github.com/xuyinzhang123/StrategyToVideo-OSS/compare/main...feat:v0.2-stock-ohlc-csv'
 
-# 方式 B：本机已安装 GitHub CLI 并登录时
-gh pr create --draft --base main --head feat/v0.2-stock-ohlc-csv --title 'feat(v0.2): Import user CSV data and generate animated backtest videos' --body-file <写有上面正文的文件路径>
+# 方式 B：本机已安装 GitHub CLI 并登录时（在仓库根目录执行）
+gh pr create --draft --base main --head feat/v0.2-stock-ohlc-csv --title 'feat(v0.2): Import user CSV data and generate animated backtest videos' --body-file docs/dev/V02_PR_BODY.md
 ```
 
 ## 10. 合并 main / 发布 V0.2 前还缺什么
