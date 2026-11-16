@@ -332,6 +332,8 @@ def build_smooth_timeline(n_days, frames, key_indices, hold_frames=30,
 
     成本域构造不变：帧在成本轴上均匀铺开再反解，位置单调、事件日被多次采样。
     峰值一次解出（核是线性的，extra = peak × Σshape），无需迭代。
+    成本域建在「日区间」而非「日」上（见下方 seg_cost）：位置值域 = [0, n_days-1]，
+    首末交易日必然被覆盖，尾部不再出现零位移帧（V1.2.3 修复）。
 
     :param hold_frames: 单个重点事件的**目标**慢放帧数（实际受重叠削减与 hold_cap 约束）
     :param hold_cap:    慢放帧数占总帧数比例的上限（防止事件过多时把影片拖成慢动作）
@@ -377,18 +379,25 @@ def build_smooth_timeline(n_days, frames, key_indices, hold_frames=30,
     peak_eff = (extra_target / s_shape) if s_shape > 0 else 0.0
     peak_eff = max(0.0, min(float(peak), peak_eff))
 
+    # 成本域必须建在「日与日之间的区间」上：n_days 个交易日只有 n_days-1 个区间。
+    # V1.2.1/V1.2.2 直接把 n_days 个「日密度」当区间成本，末日后多出一个幻影区间，
+    # 该区间里的帧反解出 k+frac > last，被 min(last, …) 钳成同一位置 → 尾部零位移帧
+    # （260 日样本实测 4 帧；34 日边界样本 46 帧）。改用梯形积分把日密度折成区间成本，
+    # 末日权重落在最后一个真实区间，位置值域天然回到 [0, last]，无需钳制。
     cost = [1.0 + peak_eff * shape[d] for d in range(n_days)]
+    seg_cost = [0.5 * (cost[d] + cost[d + 1]) for d in range(n_days - 1)]
     C = [0.0]
-    for x in cost:
+    for x in seg_cost:
         C.append(C[-1] + x)
     total = C[-1]
+    n_seg = len(seg_cost)
 
     # ---------- 3) 反解为浮点位置 ----------
     POS = []
     for f in range(frames):
         p = f * total / (frames - 1)
         k = bisect_right(C, p) - 1
-        k = max(0, min(n_days - 1, k))
+        k = max(0, min(n_seg - 1, k))
         seg = C[k + 1] - C[k]
         frac = (p - C[k]) / seg if seg > 0 else 0.0
         POS.append(min(float(last), max(0.0, k + frac)))

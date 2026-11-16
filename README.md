@@ -5,11 +5,11 @@
 
 StrategyToVideo 是一个**开源、本地运行**的策略数据视频生成项目：从数据和回测结果出发，自动绘制资金曲线、交易信号与指标面板，并输出 MP4。你可以把它下载到自己的 Windows 电脑，通过**本地网页**操作；计算、渲染和视频保存都在本机完成。
 
-> **English TL;DR:** StrategyToVideo runs entirely on your own Windows machine — it turns a strategy backtest into an animated MP4 through a local web page, with no cloud service and **no external AI API** required at runtime. **V0.1** (released) is a runnable reference implementation built on **SIMULATED data** with one fixed MACD demo. **V0.2** (in development, usable from source) adds user-provided CSV import for three data shapes — time series, cross-section, and stock daily OHLC (USER_IMPORT labeled) — with no source-code edits required. Stock OHLC import runs the full chain (validate → convert → MACD backtest → V1.2.2 render), but delivery is still gated by the sealed V1.2.2 acceptance suite, which is calibrated to the 2,633-day demo sample; tasks that fail acceptance are marked failed and no video is delivered. Figures produced from your own files are your own data, not verified market data and not investment returns.
+> **English TL;DR:** StrategyToVideo runs entirely on your own Windows machine — it turns a strategy backtest into an animated MP4 through a local web page, with no cloud service and **no external AI API** required at runtime. **V0.1** (released) is a runnable reference implementation built on **SIMULATED data** with one fixed MACD demo. **V0.2** (in development, usable from source) adds user-provided CSV import for three data shapes — time series, cross-section, and stock daily OHLC (USER_IMPORT labeled) — with no source-code edits required. Stock OHLC import runs the full chain (validate → convert → MACD backtest → V1.2.3 render → independent acceptance) and a 260-trading-day sample passes 41/41 checks and delivers an MP4. Adjusted prices (qfq/hfq) are rejected until execution-price accuracy is separately verified; only unadjusted prices plus a dividend file are accepted. Figures produced from your own files are your own data, not verified market data and not investment returns.
 
 **为什么选择本地运行？** 尽可能减少对云服务和付费 API 的依赖，降低重复制作视频的成本，并让数据、流程和生成结果更容易复现。**运行时不需要 AI 模型、外部 AI API 或在线行情 API**；首次安装依赖通常需要联网。本地网页使用的 HTTP API 只在本机提供服务，并非云端网站。
 
-> **当前版本状态：** **V0.1 已发布** —— 使用**模拟数据**运行一套固定 MACD 策略，对比“MACD 金叉买入、死叉卖出”和“买入后长期持有”，并生成演示视频。**V0.2 开发中（源码可用，尚未发布）** —— 新增**用户 CSV 导入**通道（时间序列 / 分类对比 / 股票日线三类），可在网页内选文件、映射字段并生成视频，**无需修改源码**；股票日线通道可走完「校验 → MACD 回测 → V1.2.2 渲染」全链路并出片，但成片交付仍受封版验收基线约束（详见 `docs/DATA_SPEC.md` §7.1 G-5）。自定义策略、自然语言生成策略仍不支持。
+> **当前版本状态：** **V0.1 已发布** —— 使用**模拟数据**运行一套固定 MACD 策略，对比“MACD 金叉买入、死叉卖出”和“买入后长期持有”，并生成演示视频。**V0.2 开发中（源码可用，尚未发布）** —— 新增**用户 CSV 导入**通道（时间序列 / 分类对比 / 股票日线三类），可在网页内选文件、映射字段并生成视频，**无需修改源码**；股票日线通道走「校验 → MACD 回测 → V1.2.3 渲染 → 独立验收」全链路并交付 MP4（260 日样例 41/41 通过；V0.1 演示继续使用 V1.2.2 路径且 40/40 保持通过）。复权口径只支持未复权 + 分红表。自定义策略、自然语言生成策略仍不支持。
 
 ## 看看它能生成什么
 
@@ -35,7 +35,7 @@ StrategyToVideo 是一个**开源、本地运行**的策略数据视频生成项
 - **契约先行、错误可读：** 完整输入契约见 [`docs/DATA_SPEC.md`](docs/DATA_SPEC.md)，样例与预期结果见 [`docs/samples/`](docs/samples/)。格式不合法时会返回**明确错误码与行号**（如千分位未加引号、行字段数不一致、日期乱序、重复标签），而不是静默出错。
 - **数据来源标注：** 导入类视频画面会标注文件名、导入时间与“用户导入”徽标，不会把用户文件伪装成官方行情。
 
-这是一套**流程演示与视频生成工具**，不是已支持任意策略的量化交易平台。V0.1 的标的、时间区间、本金和策略参数均为固定配置；V0.2 目前支持**通用图表类**与**股票日线（USER_IMPORT）**数据的导入出片，股票通道的成片交付以 V1.2.2 封版验收为准（未通过则任务失败并逐条报告，详见下文限制说明）。
+这是一套**流程演示与视频生成工具**，不是已支持任意策略的量化交易平台。V0.1 的标的、时间区间、本金和策略参数均为固定配置；V0.2 支持**通用图表类**与**股票日线（USER_IMPORT）**数据的导入出片，股票通道由 V1.2.3 独立验收把关（未通过则任务失败并逐条报告，详见下文限制说明）。
 
 ## 下载与本地运行
 
@@ -78,7 +78,7 @@ node tools/gen_demo_data.cjs
 | 阶段 | 方向 | 状态 |
 | --- | --- | --- |
 | **V0.1** | 本地网页 + 固定 MACD 回测 + 模拟数据自动出片 | 已发布 |
-| **V0.2** | 允许导入自己的 CSV 数据，沿用现有模板生成视频 | 开发中（时间序列 / 分类对比 / 股票日线已可走通链路；股票成片交付待验收基线适配，见下） |
+| **V0.2** | 允许导入自己的 CSV 数据，沿用现有模板生成视频 | 开发中（时间序列 / 分类对比 / 股票日线均已可出片；股票日线走 V1.2.3 渲染/验收，复权口径仅支持未复权 + 分红表，见下） |
 | **后续** | 开放策略参数和扩展接口；按需引入 AI 辅助理解、编写策略 | 探索中 |
 
 **长期方向：** 逐步把“选择数据 → 校验与映射 → 渲染出片”做成易用、可复现的工作流；**自定义策略仍属于未来功能**。AI 可以在未来帮助理解策略或组织流程，但不应成为每次生成视频都必须调用的收费环节。上述路线图不是已上线功能，也不承诺发布时间。
@@ -91,8 +91,7 @@ node tools/gen_demo_data.cjs
 
 目前**不支持**以下内容：
 
-- **股票日线（USER_IMPORT）通道的成片交付。** 该通道已在 V0.2 实装：校验、八段结构转换、封版 MACD 回测与 V1.2.2 渲染均可走通；但 V1.2.2 的 40 项独立验收基线按 2633 个交易日的演示样例标定，较短的用户样本（如 260 日）会在画幅比例与时间轴类检查上不达标（实测 34/40）。未通过验收的任务一律失败落盘（`E_VERIFY_FAILED` + 逐条明细 `accept_failures.json`），**不会产出看起来成功的视频**；决策项记录在 [`docs/DATA_SPEC.md`](docs/DATA_SPEC.md) §7.1 G-5 / §7 V-08。
-- **修改或新增策略、自然语言生成策略。** 现有策略模板为固定实现。
+- **复权行情（qfq / hfq）与修改或新增策略、自然语言生成策略。** 股票日线通道只接受**未复权行情 + 分红表**：回测把 CSV 价格直接当真实成交价计算金额、佣金、印花税与 100 股整手，复权合成价会使收益金额与真实账户不一致（实测同一数据用真实 qfq 因子后 5/23 笔交易日期改变、终值差约 2,554 元），因此在成交价口径单独验收通过前明确拒绝（`E_ADJUST_UNVERIFIED`，见 [`docs/DATA_SPEC.md`](docs/DATA_SPEC.md) §7.2）。现有策略模板为固定实现。
 - **非 Windows 平台的正式支持。** Linux/macOS 的字体和编码环境尚未完成适配验证。
 
 

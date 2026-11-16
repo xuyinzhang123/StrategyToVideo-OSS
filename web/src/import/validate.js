@@ -540,6 +540,16 @@ function buildStockOhlc(ctx) {
   if (!['none', 'qfq', 'hfq'].includes(adjust)) {
     return fail('E_ADJUST_INVALID', `复权口径非法：${String(adjust)}（只能是 none / qfq / hfq）。`);
   }
+  // V0.2 只接受未复权（DATA_SPEC §7.2 G-6）。qfq/hfq 是**合成价**：回测把 CSV 价格
+  // 直接当真实成交价（amount = shares × price → 佣金、印花税、过户费、红利税、
+  // 100 股整手全部按这个价），金额与收益率都不是该标的真实账户的结果；且复权价
+  // 已包含分红，再叠加分红表就会重复计算。在能用真实成交价口径证明之前不放行。
+  if (adjust !== 'none') {
+    return fail('E_ADJUST_UNVERIFIED',
+      `本版只接受未复权行情（adjust=none）。${adjust} 是复权合成价：回测会把它当真实成交价计算成交金额、佣金/印花税/过户费与整手股数，`
+      + '得到的金额与收益率不对应真实账户；复权价又已包含分红，无法再叠加分红表。'
+      + '请改用未复权行情 + 分红表（复权口径的支持要等成交价口径单独验收通过）。');
+  }
 
   // ---- 排序：升序通过 / 整体降序反转 / 其他拒绝 ----
   const dateOf = (r) => r.fields[mp.map.date].text.trim();
@@ -662,6 +672,8 @@ function buildStockOhlc(ctx) {
   // ---- 分红 ----
   let actions = [];
   if (dividendCsvText) {
+    // 当前 adjust 恒为 none（qfq/hfq 在上方已被 E_ADJUST_UNVERIFIED 拦下），此分支
+    // 暂不可达；保留它是为了将来放开复权口径时，仍能拦住「复权价 + 分红表」的双算。
     if (adjust !== 'none') {
       return fail('E_DIV_CONFLICT', `价格已声明为 ${adjust}（复权），再提供分红表会重复计算。请二选一：传未复权价格 + 分红表，或传复权价格且不传分红表。`);
     }

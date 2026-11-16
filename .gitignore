@@ -10,6 +10,9 @@ deps/
 web/tasks/
 output/web_*/
 output/*/04_video/frames/
+output/*/02_backtest_macd/
+output/*/04_video/
+output/probe_*/
 
 # 系统文件
 .DS_Store

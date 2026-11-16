@@ -120,8 +120,13 @@ const cases = [
   {
     file: 'stock_ohlc.csv', cls: 'stock_ohlc',
     extra: { symbol: '600000', adjust: 'qfq', dividendCsvText: readSample('stock_dividends.csv') },
-    expect: (r) => !r.ok && r.code === 'E_DIV_CONFLICT',
-    desc: '复权价 + 分红表 → E_DIV_CONFLICT（不重复计算）',
+    expect: (r) => !r.ok && r.code === 'E_ADJUST_UNVERIFIED',
+    desc: '前复权 qfq → E_ADJUST_UNVERIFIED（合成价不参与金额/费用计算，DATA_SPEC §7.2）',
+  },
+  {
+    file: 'stock_ohlc.csv', cls: 'stock_ohlc', extra: { symbol: '600000', adjust: 'hfq' },
+    expect: (r) => !r.ok && r.code === 'E_ADJUST_UNVERIFIED',
+    desc: '后复权 hfq → E_ADJUST_UNVERIFIED（同上）',
   },
   {
     file: 'warn_stock_calendar_gap.csv', cls: 'stock_ohlc', extra: { symbol: '600000', adjust: 'none' },

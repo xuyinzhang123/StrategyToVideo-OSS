@@ -254,12 +254,14 @@
         '<input type="text" id="f-stockname" maxlength="40" placeholder="例如 我的标的" /></div>'
       ));
       paramsForm.appendChild(els(
-        '<div class="field"><label>价格复权口径（必填）</label>' +
+        '<div class="field"><label>价格复权口径</label>' +
         '<select id="f-adjust">' +
-        '<option value="none" selected>未复权（配分红表时选这个）</option>' +
-        '<option value="qfq">前复权 qfq</option>' +
-        '<option value="hfq">后复权 hfq</option>' +
-        '</select><span class="field-hint">价格已经是复权价时不要再传分红表：两处都算会把分红扣两遍，后端会直接拒绝。</span></div>' +
+        '<option value="none" selected>未复权（唯一支持）</option>' +
+        '<option value="qfq" disabled>前复权 qfq（暂不支持）</option>' +
+        '<option value="hfq" disabled>后复权 hfq（暂不支持）</option>' +
+        '</select><span class="field-hint">复权价是合成价：回测会把它当真实成交价算金额、佣金、印花税和整手股数，'
+        + '得到的金额与收益率不对应真实账户，所以本版只接受未复权行情 + 分红表。'
+        + '复权口径要等成交价口径单独验收通过后才放开。</span></div>' +
         '<div class="field"><label>分红表（可空）</label>' +
         '<div class="file-row"><input type="file" id="f-div" accept=".csv,text/csv,text/plain" /></div>' +
         '<span class="field-hint">列：ex_date,record_date,pay_date,cash_per_share[,share_ratio,plan]。三个日期不可缺省也不可推导；不传则除权跳空按普通下跌处理并在视频里标注。</span></div>'
