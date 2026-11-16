@@ -109,6 +109,9 @@ function setFailed(taskId, info) {
     hint: info.hint || '请新建任务重试',
   };
   if (Array.isArray(info.missing) && info.missing.length) error.missing = info.missing;
+  // 验收类失败：把 PASS/FAIL 计数与逐条失败项一起落盘，避免用户只看到「验收未通过」
+  if (info.acceptance) error.acceptance = info.acceptance;
+  if (Array.isArray(info.failures) && info.failures.length) error.failures = info.failures.slice(0, 12);
   return updateStatus(taskId, {
     status: 'failed',
     finishedAt: new Date().toISOString(),
@@ -176,12 +179,27 @@ function createTask(normalized) {
 
     fs.writeFileSync(path.join(dir, 'source.csv'), srcBuf);
 
+    // C 类可选分红表：独立留档为 dividend.csv，与 source.csv 同源留档语义（可复核、不篡改）。
+    let dividend = null;
+    const divText = typeof normalized.dividendSourceText === 'string' ? normalized.dividendSourceText : '';
+    if (divText) {
+      const divBuf = Buffer.from(divText, 'utf8');
+      const divSha = crypto.createHash('sha256').update(divBuf).digest('hex');
+      fs.writeFileSync(path.join(dir, 'dividend.csv'), divBuf);
+      dividend = {
+        fileName: 'dividend.csv', archivedAs: 'dividend.csv',
+        sha256: divSha, bytes: divBuf.length,
+        lines: divText.split(/\r\n|\n|\r/).length,
+      };
+    }
+
     // 指纹写进归一化模型：渲染器把它打在页脚，成片与源文件从此可互相指认
     const importModel = JSON.parse(JSON.stringify(normalized.importModel));
     importModel.meta = Object.assign({}, importModel.meta, {
       sourceSha256: sha256,
       sourceBytes: srcBuf.length,
       sourceLines,
+      dividendSha256: dividend ? dividend.sha256 : null,
     });
 
     const source = {
@@ -205,6 +223,7 @@ function createTask(normalized) {
       mapping: normalized.mapping,
       warnings: normalized.warnings,
       source,
+      dividend,
       mode: 'plan-only',
     };
     const status = {
@@ -218,6 +237,7 @@ function createTask(normalized) {
       updatedAt: now,
       warnings: normalized.warnings,
       source,
+      dividend,
       note: '任务已创建（计划态），请点击「确认并生成视频」显式执行。',
       result: null,
       error: null,

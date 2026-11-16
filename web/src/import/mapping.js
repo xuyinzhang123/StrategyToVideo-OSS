@@ -9,6 +9,8 @@
 const CLASS_FIELDS = {
   timeseries: { required: ['date', 'value'], optional: ['series'] },
   cross_section: { required: ['label', 'value'], optional: ['group', 'value2'] },
+  // C 类：股票日线（DATA_SPEC §4.1）。volume / amount 均可省略（G-4 已验证下游无 amount 依赖）
+  stock_ohlc: { required: ['date', 'open', 'high', 'low', 'close'], optional: ['volume', 'amount'] },
 };
 
 // 面向用户的字段名。错误文案里出现 date / value 会让界面上的「日期（必填）」「数值（必填）」
@@ -20,6 +22,12 @@ const FIELD_LABELS = {
   label: '名称',
   group: '分组',
   value2: '对照值',
+  open: '开盘价',
+  high: '最高价',
+  low: '最低价',
+  close: '收盘价',
+  volume: '成交量',
+  amount: '成交额',
 };
 
 function labelOf(field) {
@@ -38,6 +46,12 @@ const ALIASES = {
   label: ['label', '名称', '标签', '项目', '对象', '渠道', 'name'],
   group: ['group', '分组', '组别', '类别'],
   value2: ['value2', '对照', '上期', '对比值', '第二数值'],
+  open: ['open', '开盘', '开盘价'],
+  high: ['high', '最高', '最高价'],
+  low: ['low', '最低', '最低价'],
+  close: ['close', '收盘', '收盘价'],
+  volume: ['volume', 'vol', '成交量', '量'],
+  amount: ['amount', 'turnover', '成交额', '成交金额', '额'],
 };
 
 function norm(s) {

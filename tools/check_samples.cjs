@@ -6,7 +6,7 @@
 //   npm run check:samples
 //
 // 分三部分：
-//   A. 类级别判定：A/B 样例走真实校验器；C 类样例必须被门禁拒绝。
+//   A. 类级别判定：A/B/C 三类样例都走真实校验器（C 类在 V0.2 已开放，不再被门禁拒绝）。
 //   B. 规则单点：千分位的接受/拒绝（契约 §1.2）、未加引号逗号走列数错误。
 //   C. 映射免改码：同一批数据换三种表头，走 mapping 后得到同一模型。
 
@@ -79,19 +79,83 @@ const cases = [
     expect: (r) => !r.ok && r.code === 'E_DUP_LABEL' && /渠道C/.test(r.message),
     desc: 'E_DUP_LABEL 渠道C',
   },
-  // C 类：门禁必须先拦住，不能静默算错（AC-14）
-  { file: 'stock_ohlc.csv', cls: 'stock_ohlc', expect: (r) => !r.ok && r.code === 'E_CLASS_NOT_IMPLEMENTED', desc: 'E_CLASS_NOT_IMPLEMENTED' },
-  { file: 'stock_dividends.csv', cls: 'stock_ohlc', expect: (r) => !r.ok && r.code === 'E_CLASS_NOT_IMPLEMENTED', desc: 'E_CLASS_NOT_IMPLEMENTED' },
-  { file: 'warn_stock_calendar_gap.csv', cls: 'stock_ohlc', expect: (r) => !r.ok && r.code === 'E_CLASS_NOT_IMPLEMENTED', desc: 'E_CLASS_NOT_IMPLEMENTED' },
-  { file: 'warn_stock_descending.csv', cls: 'stock_ohlc', expect: (r) => !r.ok && r.code === 'E_CLASS_NOT_IMPLEMENTED', desc: 'E_CLASS_NOT_IMPLEMENTED' },
-  { file: 'invalid_stock_missing_column.csv', cls: 'stock_ohlc', expect: (r) => !r.ok && r.code === 'E_CLASS_NOT_IMPLEMENTED', desc: 'E_CLASS_NOT_IMPLEMENTED' },
-  { file: 'invalid_stock_duplicate_date.csv', cls: 'stock_ohlc', expect: (r) => !r.ok && r.code === 'E_CLASS_NOT_IMPLEMENTED', desc: 'E_CLASS_NOT_IMPLEMENTED' },
-  { file: 'invalid_stock_bad_number.csv', cls: 'stock_ohlc', expect: (r) => !r.ok && r.code === 'E_CLASS_NOT_IMPLEMENTED', desc: 'E_CLASS_NOT_IMPLEMENTED' },
+  // C 类：股票日线（V0.2 · DATA_SPEC §7.1 门禁已通过，走真实转换器）
+  {
+    file: 'stock_ohlc.csv', cls: 'stock_ohlc',
+    extra: { symbol: '600000', name: '样例标的A', adjust: 'none' },
+    expect: (r) => r.ok && r.model.bars.length === 260 && r.model.actions.length === 0
+      && r.model.meta.board === 'SH_MAIN'
+      && r.warnings.some((w) => w.code === 'W_NO_DIVIDENDS'),
+    desc: '260 交易日 / 未复权 / 无分红表 → W_NO_DIVIDENDS',
+  },
+  {
+    file: 'stock_ohlc.csv', cls: 'stock_ohlc',
+    extra: {
+      symbol: '600000', name: '样例标的A', adjust: 'none',
+      dividendCsvText: readSample('stock_dividends.csv'),
+    },
+    expect: (r) => r.ok && r.model.bars.length === 260 && r.model.actions.length === 2
+      && r.model.actions[0].date === '2024-06-17'
+      && r.model.actions[0].recordDate === '2024-06-14'
+      && r.model.actions[0].payDate === '2024-06-24'
+      && r.model.actions[0].cashPerShare === 0.25
+      && r.model.dividendEvents.length === r.model.actions.length,
+    desc: '260 交易日 + 2 次分红（登记日/除息日/派息日齐全）',
+  },
+  {
+    file: 'stock_dividends.csv', cls: 'stock_ohlc', extra: { symbol: '600000' },
+    expect: (r) => !r.ok && r.code === 'E_MAPPING_COLUMN',
+    desc: '把分红表当行情表 → E_MAPPING_COLUMN',
+  },
+  {
+    file: 'stock_ohlc.csv', cls: 'stock_ohlc', extra: {},
+    expect: (r) => !r.ok && r.code === 'E_SYMBOL_REQUIRED',
+    desc: '缺证券代码 → E_SYMBOL_REQUIRED',
+  },
+  {
+    file: 'stock_ohlc.csv', cls: 'stock_ohlc', extra: { symbol: '300001' },
+    expect: (r) => !r.ok && r.code === 'E_UNSUPPORTED_BOARD',
+    desc: '创业板 300001 → E_UNSUPPORTED_BOARD',
+  },
+  {
+    file: 'stock_ohlc.csv', cls: 'stock_ohlc',
+    extra: { symbol: '600000', adjust: 'qfq', dividendCsvText: readSample('stock_dividends.csv') },
+    expect: (r) => !r.ok && r.code === 'E_DIV_CONFLICT',
+    desc: '复权价 + 分红表 → E_DIV_CONFLICT（不重复计算）',
+  },
+  {
+    file: 'warn_stock_calendar_gap.csv', cls: 'stock_ohlc', extra: { symbol: '600000', adjust: 'none' },
+    expect: (r) => r.ok && r.model.meta.calendarGaps.length > 0
+      && r.warnings.some((w) => w.code.startsWith('W_CALENDAR_GAP')),
+    desc: '缺工作日 → W_CALENDAR_GAP（不当作停牌、不补行）',
+  },
+  {
+    file: 'warn_stock_descending.csv', cls: 'stock_ohlc', extra: { symbol: '600000', adjust: 'none' },
+    expect: (r) => r.ok && r.model.bars[0].date < r.model.bars[r.model.bars.length - 1].date
+      && r.warnings.some((w) => w.code === 'W_DESC_ORDER'),
+    desc: '整体降序 → 自动反转为升序 + W_DESC_ORDER',
+  },
+  {
+    file: 'invalid_stock_missing_column.csv', cls: 'stock_ohlc', extra: { symbol: '600000' },
+    expect: (r) => !r.ok && r.code === 'E_MAPPING_COLUMN',
+    desc: '缺收盘价列 → E_MAPPING_COLUMN',
+  },
+  {
+    file: 'invalid_stock_duplicate_date.csv', cls: 'stock_ohlc', extra: { symbol: '600000' },
+    expect: (r) => !r.ok && r.code === 'E_DUP_DATE' && typeof r.line === 'number',
+    desc: '重复日期 → E_DUP_DATE（带行号）',
+  },
+  {
+    file: 'invalid_stock_bad_number.csv', cls: 'stock_ohlc', extra: { symbol: '600000' },
+    // 该样例的第 7 行是引号内的严格千分位 → 命中更精确的 E_THOUSANDS_SEPARATOR（§1.2）
+    expect: (r) => !r.ok && r.code === 'E_THOUSANDS_SEPARATOR' && r.line === 7,
+    desc: '千分位数值 → E_THOUSANDS_SEPARATOR @ 第 7 行',
+  },
 ];
 
 console.log('=== A. 样例预期结果 ===');
 for (const c of cases) {
-  const r = run(c.file, c.cls);
+  const r = run(c.file, c.cls, c.extra);
   const ok = !!c.expect(r);
   check(c.file, ok, `实际 ${r.ok ? 'through' : r.code}${r.message ? ' / ' + r.message.slice(0, 70) : ''}`);
   console.log(`  ${ok ? 'PASS' : 'FAIL'}  ${c.file.padEnd(42)} ${c.desc}`);

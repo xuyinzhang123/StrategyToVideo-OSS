@@ -37,6 +37,11 @@
           <span class="strategy-desc">列形如 名称 + 数值 · 生成条形对比动画（V0.2 预览）</span>
           <span class="strategy-tag tag-live">可生成视频</span>
         </button>
+        <button class="strategy-card" data-strategy="stock_ohlc" type="button">
+          <span class="strategy-name">股票日线（自己的 CSV）</span>
+          <span class="strategy-desc">列形如 日期 + 开高低收 · 跑 MACD 金叉死叉 → 生成 V1.2.2 视频（USER_IMPORT）</span>
+          <span class="strategy-tag tag-live">可生成视频</span>
+        </button>
       </div>
       <p class="hint" id="strategy-hint">请选择一个策略或数据类别。</p>
     </section>
@@ -81,7 +86,7 @@
   </main>
 
   <footer class="site-footer">
-    <span>Open Source V0.1 + V0.2 预览 · 本地 127.0.0.1 · MACD 演示（SIMULATED 模拟数据）与用户 CSV（时间序列 / 横向对比）· 失败任务请新建任务重试</span>
+    <span>Open Source V0.1 + V0.2 预览 · 本地 127.0.0.1 · MACD 演示（SIMULATED 模拟数据）与用户 CSV（时间序列 / 横向对比 / 股票日线 USER_IMPORT）· 失败任务请新建任务重试</span>
   </footer>
 
   <script src="/app.js"></script>

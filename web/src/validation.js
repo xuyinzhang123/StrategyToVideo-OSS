@@ -26,14 +26,17 @@
 
 const { validateImport } = require('./import/validate');
 
-const STRATEGY_IDS = ['macd', 'timeseries', 'cross_section'];
+const STRATEGY_IDS = ['macd', 'timeseries', 'cross_section', 'stock_ohlc'];
 
-// 用户 CSV 通道（V0.2 预览）：A/B 两类已开放；stock_ohlc 受 DATA_SPEC §7.1 门禁约束，未注册。
-const USER_CLASSES = ['timeseries', 'cross_section'];
+// 用户 CSV 通道（V0.2）：A/B 两类 + C 类股票日线。
+// C 类门禁（DATA_SPEC §7.1）已通过：G-1 qfq 无二次调整、G-4 amount 无下游依赖。
+const USER_CLASSES = ['timeseries', 'cross_section', 'stock_ohlc'];
 
 // 用户 CSV 请求允许的字段（与引擎侧 createTask 写入 request.json 的字段一一对应）
+// C 类额外需要：symbol（必填）、name、adjust、dividendCsvText（可选分红表原文）
 const USER_ALLOWED_FIELDS = new Set([
   'strategy', 'title', 'unit', 'asOf', 'sourceNote', 'mapping', 'csvText', 'fileName', 'sortByValue',
+  'symbol', 'name', 'adjust', 'dividendCsvText',
 ]);
 
 const WINDOWS = {
@@ -248,6 +251,11 @@ function validateUserCsvRequest(body, dataClass) {
     sourceNote: body.sourceNote,
     fileName,
     sortByValue: body.sortByValue,
+    // C 类专用：证券代码 / 显示名 / 复权口径 / 可选分红表原文
+    symbol: body.symbol,
+    name: body.name,
+    adjust: body.adjust,
+    dividendCsvText: body.dividendCsvText,
   });
   if (!r.ok) {
     return { ok: false, code: r.code, message: r.message, line: r.line };
@@ -259,7 +267,7 @@ function validateUserCsvRequest(body, dataClass) {
       strategy: dataClass,
       dataClass,
       title: r.model.meta.title,
-      unit: r.model.meta.unit,
+      unit: r.model.meta.unit || '',
       asOf: r.model.meta.asOf || '',
       sourceNote: r.model.meta.sourceNote || '',
       fileName: r.model.meta.fileName || '',
@@ -269,6 +277,9 @@ function validateUserCsvRequest(body, dataClass) {
       // 原始 CSV 文本：由 taskManager 原样落到任务目录 source.csv 并算 SHA-256（留档 + 溯源）。
       // 不进 request.json、不进视频模型之外的任何对外响应。
       sourceText: body.csvText,
+      // C 类可选分红表：同样留档为 dividend.csv（独立文件，便于复核）
+      dividendSourceText: dataClass === 'stock_ohlc' && typeof body.dividendCsvText === 'string'
+        ? body.dividendCsvText : '',
       mode: 'plan-only',
     },
   };
@@ -299,20 +310,13 @@ function validateTaskRequest(body) {
   //    不参与路径扫描——否则一份正常 CSV 会被误判成路径注入。
   const pathScanTarget = Object.assign({}, body);
   delete pathScanTarget.csvText;
+  delete pathScanTarget.dividendCsvText; // 分红表原文同理，可能合法含 / \ .. 等字符
   if (anyStringLooksLikePath(pathScanTarget)) {
     return { ok: false, code: 'E_FORBIDDEN_FIELD', message: '请求中包含非法路径字符' };
   }
 
-  // 4) 策略标识
+  // 4) 策略标识（stock_ohlc 已注册，走下面的用户 CSV 分支）
   const strategy = body.strategy;
-
-  // 4.0) 受门禁约束的数据类别：给出明确原因，而不是笼统的「不支持的策略」。
-  //      否则用户会以为是自己拼错，而不是「这条通道还不能保证算对」。
-  if (strategy === 'stock_ohlc') {
-    const gated = validateImport({ dataClass: 'stock_ohlc' });
-    return { ok: false, code: gated.code, message: gated.message };
-  }
-
   if (typeof strategy !== 'string' || !STRATEGY_IDS.includes(strategy)) {
     return {
       ok: false,
