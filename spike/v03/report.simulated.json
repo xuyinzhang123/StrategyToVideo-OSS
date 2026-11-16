@@ -1,0 +1,151 @@
+{
+  "schema": "stv.story/0.1",
+  "meta": {
+    "title": "渲染链自检（纯合成数据）",
+    "width": 1080,
+    "height": 1920,
+    "fps": 30,
+    "motion": { "countUp": true },
+    "provenance": {
+      "type": "SIMULATED",
+      "verification": "synthetic",
+      "footer": "SIMULATED · 纯合成数据，仅用于渲染链自检，不代表任何真实统计",
+      "note": "数值为手写常量，用途是覆盖 10 种版式并作为回归基线；不来自任何真实数据集。"
+    }
+  },
+  "screens": [
+    {
+      "id": "hook",
+      "kind": "hook_number",
+      "duration": 2.0,
+      "eyebrow": "SIMULATED / 渲染链自检",
+      "headline": "这条片子里的每个数字",
+      "value": "100",
+      "unit": "%",
+      "conclusion": ["都是编的"]
+    },
+    {
+      "id": "ch01",
+      "kind": "dual_metrics",
+      "duration": 2.0,
+      "label": "01",
+      "title": "样本",
+      "items": [
+        { "value": "12.4", "unit": "万", "label": "条目数",
+          "valueColor": [252, 249, 251], "unitColor": [255, 34, 46] },
+        { "value": "3,800", "unit": "列", "label": "字段数",
+          "valueColor": [244, 186, 74], "unitColor": [244, 186, 74] }
+      ]
+    },
+    {
+      "id": "ch02",
+      "kind": "dot_matrix",
+      "duration": 2.0,
+      "label": "02",
+      "title": "命中",
+      "lead": "全量跑一遍之后",
+      "value": "8,600",
+      "unit": "条",
+      "suffix": "被解析",
+      "chip": "命中率 0.48%",
+      "bottom": { "value": "41", "unit": "条", "label": "真正上屏" },
+      "grid": { "cols": 40, "rows": 25, "lit": 5, "encoding": "proportional" }
+    },
+    {
+      "id": "ch03",
+      "kind": "dense_grid",
+      "duration": 2.0,
+      "label": "03",
+      "title": "稀有",
+      "lead": "值得单独讲一屏的，只有",
+      "value": "<0.2",
+      "unit": "%",
+      "note": ["1,000 条里", "不到 2 条"],
+      "grid": { "cols": 40, "rows": 25, "lit": 2, "encoding": "proportional" }
+    },
+    {
+      "id": "ch04",
+      "kind": "bar_scale",
+      "duration": 2.0,
+      "label": "04",
+      "title": "成本",
+      "headline": "同一件事，三种做法",
+      "note": "分钟 / 条 · 取上限",
+      "bars": [
+        { "label": "纯手工剪", "display": "90", "value": 90 },
+        { "label": "半自动", "display": "25", "value": 25 },
+        { "label": "脚本出片", "display": "6", "value": 6, "accent": true }
+      ],
+      "conclusion": ["6 分钟，", "出一条"],
+      "conclusionAccentLine": 1
+    },
+    {
+      "id": "ch05",
+      "kind": "split_bar",
+      "duration": 2.0,
+      "label": "05",
+      "title": "耗时",
+      "lead": "时间不是花在数据上",
+      "segments": [
+        { "label": "解析 3", "value": 3, "tone": "light" },
+        { "label": "渲染 7", "value": 7, "tone": "accent" }
+      ],
+      "value": "70",
+      "unit": "%",
+      "valueLabel": "花在画面上",
+      "conclusion": ["渲染，占了七成时间"]
+    },
+    {
+      "id": "ch06",
+      "kind": "progress_sliver",
+      "duration": 2.0,
+      "label": "06",
+      "title": "达标",
+      "lead": "自检通过线",
+      "headline": "41 项全过",
+      "left": { "value": "2.1", "unit": "%", "label": "能达标" },
+      "right": { "value": "97.9", "unit": "%", "label": "未达标" },
+      "track": { "ratio": 0.021 },
+      "conclusion": ["多数改动，", "连门槛都摸不到"]
+    },
+    {
+      "id": "ch07",
+      "kind": "decay_bars",
+      "duration": 2.0,
+      "label": "07",
+      "title": "衰减",
+      "lead": "同样的输入，产物只剩下",
+      "bars": [
+        { "label": "原始行数", "display": "120", "value": 120 },
+        { "label": "上屏数字", "display": "15", "value": 15, "accent": true }
+      ],
+      "conclusion": ["上屏只留 12.5%", "其余都是过程"],
+      "conclusionAccentLine": 0
+    },
+    {
+      "id": "ch08",
+      "kind": "row_list",
+      "duration": 2.0,
+      "label": "08",
+      "title": "去向",
+      "headline": "数据去了哪",
+      "rows": [
+        { "label": "源文件", "tag": "原样留档" },
+        { "label": "中间表", "tag": "可复算" },
+        { "label": "画面上的数字", "tag": "逐行可回读", "accent": true }
+      ],
+      "bottom": { "lead": "可回溯到源文件的比例：", "value": "100", "unit": "%" }
+    },
+    {
+      "id": "outro",
+      "kind": "outro",
+      "duration": 2.0,
+      "label": "收尾",
+      "lead": "所以，",
+      "value": "100",
+      "unit": "%",
+      "statement": ["不是装饰", "是这条链的验收标准"],
+      "support": ["同样的输入 + 同样的依赖", "= 逐字节相同的输出"]
+    }
+  ]
+}
