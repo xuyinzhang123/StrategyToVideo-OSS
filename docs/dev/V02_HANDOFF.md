@@ -42,7 +42,7 @@
 
 **非阻断项 / 待处理：**
 
-1. **Draft PR 尚未创建**：工厂电脑没有 GitHub API Token、`gh` CLI 或已登录浏览器，SSH 只能传输 Git 对象，不能调用 PR API。按授权边界未继续排障。家里电脑可直接按第 9 节创建。
+1. ~~**Draft PR 尚未创建**~~ **已创建（2026-11-16）**：PR [#1](https://github.com/xuyinzhang123/StrategyToVideo-OSS/pull/1)，Draft / open，base `main` ← head `feat/v0.2-stock-ohlc-csv`，正文取自 `docs/dev/V02_PR_BODY.md`。创建时 head SHA 为 `890d881ff41d7d7abe9501117b6006797de3ca28`；后续回填链接的文档提交会自动进入本 PR。
 2. 横盘行情 Y 轴幅度较小：按约定暂不处理，优先保证真实刻度、零遮挡和金额准确。
 3. `DATA_SPEC.md` 的 2 万行上限常量在代码中未单独使用；实际由 2 MiB 文件大小上限兜底。这是 V0.1 既有实现，非 V0.2 回归。
 4. V1.2.3 是 V1.2.2 的受控副本；将来若修改 V1.2.2，需人工同步 V1.2.3 并复跑 41 项验收。
@@ -101,10 +101,15 @@ python engine_next/tests/test_timeline_bounds.py
 - G-1 / G-4 / G-6 门禁证据与 qfq 失真数据对照。
 - 只有在改动回测、渲染、文案或映射语义时，才需要重新出片；改文档不需要。
 
-## 9. Draft PR（待创建）
+## 9. Draft PR（已创建）
 
-**状态**：创建受阻，原因见第 4 节。远程功能分支已完整推送，PR 可随时补建。
-**链接**：暂无。创建后请把真实 URL 回填这里并同步给评审者。
+**状态**：已创建，Draft / open，等待正式代码评审（本轮不合并、不发布 Release）。
+**链接**：https://github.com/xuyinzhang123/StrategyToVideo-OSS/pull/1
+**编号**：#1 ｜ **Base**：`main` ｜ **Head**：`feat/v0.2-stock-ohlc-csv`
+**标题**：feat(v0.2): Import user CSV data and generate animated backtest videos
+**正文**：`docs/dev/V02_PR_BODY.md`（已核对与 PR 描述逐字节一致）
+**创建时间**：2026-11-16 ｜ 创建方式：GitHub REST API（本机 git 凭据认证，仅公开仓库）
+**备注**：创建时 head 为 `890d881ff41d7d7abe9501117b6006797de3ca28`；本次回填链接的文档提交会自动追加到本 PR 的提交列表。
 
 标题：
 
