@@ -5,11 +5,11 @@
 
 StrategyToVideo 是一个**开源、本地运行**的策略数据视频生成项目：从数据和回测结果出发，自动绘制资金曲线、交易信号与指标面板，并输出 MP4。你可以把它下载到自己的 Windows 电脑，通过**本地网页**操作；计算、渲染和视频保存都在本机完成。
 
-> **English TL;DR:** StrategyToVideo runs entirely on your own Windows machine — it turns a strategy backtest into an animated MP4 through a local web page, with no cloud service and **no external AI API** required at runtime. **V0.1** (released) is a runnable reference implementation built on **SIMULATED data** with one fixed MACD demo. **V0.2** (in development, usable from source) adds user-provided CSV import for three data shapes — time series, cross-section, and stock daily OHLC (USER_IMPORT labeled) — with no source-code edits required. Stock OHLC import runs the full chain (validate → convert → MACD backtest → V1.2.3 render → independent acceptance) and a 260-trading-day sample passes 41/41 checks and delivers an MP4. **Supported stock data: unadjusted prices only** (qfq/hfq are actively rejected until execution-price accuracy is separately verified), **main-board A-shares only** (600/601/603/605 and 000/001/002/003), with **dividends supplied in a separate CSV** — without that file the result excludes cash dividends and ex-right gaps are treated as ordinary price drops. Figures produced from your own files are your own data: the tool checks format and internal consistency, **not** whether the data is real, complete, or matches your broker; backtest amounts are a local simulation, not real account fills, and not investment advice. Windows is the only verified platform.
+> **English TL;DR:** StrategyToVideo runs entirely on your own Windows machine — it turns a strategy backtest into an animated MP4 through a local web page, with no cloud service and **no external AI API** required at runtime. **V0.1** (released) is a runnable reference implementation built on **SIMULATED data** with one fixed MACD demo. **V0.2.0** (released) adds user-provided CSV import for three data shapes — time series, cross-section, and stock daily OHLC (USER_IMPORT labeled) — with no source-code edits required. Stock OHLC import runs the full chain (validate → convert → MACD backtest → V1.2.3 render → independent acceptance) and a 260-trading-day sample passes 41/41 checks and delivers an MP4. **Supported stock data: unadjusted prices only** (qfq/hfq are actively rejected until execution-price accuracy is separately verified), **main-board A-shares only** (600/601/603/605 and 000/001/002/003), with **dividends supplied in a separate CSV** — without that file the result excludes cash dividends and ex-right gaps are treated as ordinary price drops. Figures produced from your own files are your own data: the tool checks format and internal consistency, **not** whether the data is real, complete, or matches your broker; backtest amounts are a local simulation, not real account fills, and not investment advice. Windows is the only verified platform.
 
 **为什么选择本地运行？** 尽可能减少对云服务和付费 API 的依赖，降低重复制作视频的成本，并让数据、流程和生成结果更容易复现。**运行时不需要 AI 模型、外部 AI API 或在线行情 API**；首次安装依赖通常需要联网。本地网页使用的 HTTP API 只在本机提供服务，并非云端网站。
 
-> **当前版本状态：** **V0.1 已发布** —— 使用**模拟数据**运行一套固定 MACD 策略，对比“MACD 金叉买入、死叉卖出”和“买入后长期持有”，并生成演示视频。**V0.2 开发中（源码可用，尚未发布）** —— 新增**用户 CSV 导入**通道（时间序列 / 分类对比 / 股票日线三类），可在网页内选文件、映射字段并生成视频，**无需修改源码**；股票日线通道走「校验 → MACD 回测 → V1.2.3 渲染 → 独立验收」全链路并交付 MP4（260 日样例 41/41 通过；V0.1 演示继续使用 V1.2.2 封版路径，40/40 通过，画面与时间轴口径已冻结）。复权口径只支持未复权 + 分红表。自定义策略、自然语言生成策略仍不支持。
+> **当前版本状态：** **V0.1 已发布** —— 使用**模拟数据**运行一套固定 MACD 策略，对比“MACD 金叉买入、死叉卖出”和“买入后长期持有”，并生成演示视频。**V0.2 已发布（v0.2.0，从源码运行即可用）** —— 新增**用户 CSV 导入**通道（时间序列 / 分类对比 / 股票日线三类），可在网页内选文件、映射字段并生成视频，**无需修改源码**；股票日线通道走「校验 → MACD 回测 → V1.2.3 渲染 → 独立验收」全链路并交付 MP4（260 日样例 41/41 通过；V0.1 演示继续使用 V1.2.2 封版路径，40/40 通过，画面与时间轴口径已冻结）。复权口径只支持未复权 + 分红表。自定义策略、自然语言生成策略仍不支持。
 
 ## 看看它能生成什么
 
@@ -27,7 +27,7 @@ StrategyToVideo 是一个**开源、本地运行**的策略数据视频生成项
 - **预览与导出：** 在本地网页查看任务进度，预览、下载 MP4；服务重启后可查询已有任务。
 - **结果校验：** 自动执行数据与视频的一致性验收，检查金额、信号、日期和画面等关键内容。
 
-**V0.2 开发中（从源码运行即可用）**
+**V0.2 已发布（v0.2.0，从源码运行即可用）**
 
 - **导入自己的 CSV：** 在网页内选择本地 CSV 文件，先看前几行预览，确认后再提交。
 - **字段映射，不改源码：** 目标字段（如 `date` / `value` / `label`）与 CSV 列名的对应关系在界面里点选；列名不必和示例文字一致，中英文表头都能用。
@@ -91,7 +91,7 @@ node tools/gen_demo_data.cjs
 | 阶段 | 方向 | 状态 |
 | --- | --- | --- |
 | **V0.1** | 本地网页 + 固定 MACD 回测 + 模拟数据自动出片 | 已发布 |
-| **V0.2** | 允许导入自己的 CSV 数据，沿用现有模板生成视频 | 开发中（时间序列 / 分类对比 / 股票日线均已可出片；股票日线走 V1.2.3 渲染/验收，复权口径仅支持未复权 + 分红表，见下） |
+| **V0.2** | 允许导入自己的 CSV 数据，沿用现有模板生成视频 | **已发布 v0.2.0**（时间序列 / 分类对比 / 股票日线均可出片；股票日线走 V1.2.3 渲染/验收，复权口径仅支持未复权 + 分红表，见下） |
 | **后续** | 开放策略参数和扩展接口；按需引入 AI 辅助理解、编写策略 | 探索中 |
 
 **长期方向：** 逐步把“选择数据 → 校验与映射 → 渲染出片”做成易用、可复现的工作流；**自定义策略仍属于未来功能**。AI 可以在未来帮助理解策略或组织流程，但不应成为每次生成视频都必须调用的收费环节。上述路线图不是已上线功能，也不承诺发布时间。

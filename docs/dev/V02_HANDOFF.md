@@ -7,8 +7,7 @@
 
 | 项 | 值 |
 |---|---|
-| 已发布版本 | V0.1（SIMULATED 固定 MACD 演示，视频 V1.2.2） |
-| 开发中版本 | V0.2（源码可用，尚未发布 Release） |
+| 已发布版本 | V0.1（SIMULATED 固定 MACD 演示，视频 V1.2.2）、**V0.2.0（用户 CSV 导入，Release `v0.2.0`）** |
 | 分支 | `feat/v0.2-stock-ohlc-csv` |
 | 远端 | `https://github.com/xuyinzhang123/StrategyToVideo-OSS.git` |
 | 代码基线 | `3c76975`（此前 UX 修复为 `bd180aa`）；本轮 PR 审查修复见第 4 节表格 |
