@@ -304,6 +304,9 @@ TL_CFG = {
     "smooth_days": float(TCFG.get("smooth_days", 5.0)),
     "peak": float(TCFG.get("peak", 18.0)),
     "hold_cap": float(TCFG.get("hold_cap", 0.42)),
+    # 与 V1.2.2 的唯一时间轴差异：成本域建在「日区间」上（详见 video_events 注释）。
+    # V1.2.2 不传该参数 → 保持封版口径，V0.1 演示逐字节不变。
+    "cost_domain": "intervals",
 }
 POS = build_smooth_timeline(N, V["main_frames"], sorted(KEY_INDEX_SET), **TL_CFG)
 SMOOTH = smoothness_report(POS)

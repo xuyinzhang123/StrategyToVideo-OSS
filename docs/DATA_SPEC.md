@@ -577,7 +577,7 @@ C 类在下列门禁全部通过前不开放。**2026-11-16 更新：G-1 ~ G-6 �
 | G-2 | CSV → 八段结构转换器（含「空分红日历」分支，避免 `E_NO_PAY_CALENDAR`） | §4.4 | ✅ 已实现（`web/src/import/validate.js: buildStockOhlc` + `web/src/adapters/stockOhlc.cjs`） |
 | G-3 | 起点早于 2015-08-01 的费率缺口处理 | §5.4 | ✅ 规则已定（拒绝，`E_DATE_BEFORE_COST_RULES`） |
 | G-4 | `amount` 缺省时下游链路无字段依赖 | V-06 | ✅ 已验证（全仓检索：回测/summary/daily/macd/signals 生成链路不读 CSV 的 `amount` 列；`sealedSide()` 只用 OHLC） |
-| **G-5** | V1.2.2 独立验收（40 项）对用户导入样本的适用性 | §7 V-08 | ✅ **已解决（V1.2.3）**：时间轴成本域改到日区间（`video_events.py`，180 组边界矩阵全达标）；首个 MACD 点阈值改为与长度无关的两条不变量；浮板高度/定位改读渲染报告并按本次资产轨迹自适应。260 日样例独立验收 **41/41 通过**并交付 MP4；V0.1 演示仍走 V1.2.2 且 40/40 保持通过 |
+| **G-5** | V1.2.2 独立验收（40 项）对用户导入样本的适用性 | §7 V-08 | ✅ **已解决（V1.2.3）**：V1.2.3 显式选 `cost_domain="intervals"`（180 组边界矩阵全达标），V1.2.2 默认封版 `cost_domain="days"`（SHA 逐位冻结、成片与原公开版本逐字节一致）；首个 MACD 点阈值改为与长度无关的两条不变量；浮板高度/定位改读渲染报告并按本次资产轨迹自适应。260 日样例独立验收 **41/41 通过**并交付 MP4；V0.1 演示仍走 V1.2.2 且 40/40 保持通过 |
 | **G-6** | 复权（qfq/hfq）行情能否用于准确的成交价/仓位/收益计算 | §7.2 | ✅ **已验证并落为门禁**：不能。V0.2 只接受 `adjust=none`，qfq/hfq → `E_ADJUST_UNVERIFIED`（证据见 §7.2） |
 
 #### 7.2 复权口径门禁（G-6，2026-11-16）
@@ -606,9 +606,9 @@ C 类在下列门禁全部通过前不开放。**2026-11-16 更新：G-1 ~ G-6 �
 | `engine_next/lib/stock_cost.cjs` | 费率分段与「无适用规则即抛错」 |
 | `engine_next/lib/stock_macd_core.cjs` | `readyFrom = 33`，最少 34 个交易日 |
 | `engine_next/config.stock_macd_video_v122.json` | 所有用户可见文案在 `copy` 段；来源标注只需替换此处，**不改渲染器**。V0.2 起 `chart.panel.y1` 只约束 V1.2.2 演示路径；用户导入路径由适配器解掉该键，交 V1.2.3 自适应 |
-| `engine_next/render_stock_macd_v123.py` | 用户 CSV 专用渲染器（V1.2.3）：在 V1.2.2 基础上只改「短样本时间轴成本域（共享 `video_events.py`）+ 浮板按本次资产轨迹自适应定位 + 报告真实浮板矩形」；V0.1 演示继续用 `render_stock_macd_v122.py`，两者共享回测产物与文案 token 表 |
+| `engine_next/render_stock_macd_v123.py` | 用户 CSV 专用渲染器（V1.2.3）：在 V1.2.2 基础上只改「短样本时间轴成本域（`video_events.py` 的 `cost_domain="intervals"` 显式开关）+ 浮板按本次资产轨迹自适应定位 + 报告真实浮板矩形」；V0.1 演示继续用 `render_stock_macd_v122.py`（不传开关 → 封版 `cost_domain="days"`），两者共享回测产物与文案 token 表 |
 | `engine_next/tests/accept_macd_video_v123.py` | 用户 CSV 独立验收（41 项）：与 V1.2.2 逐条同源，仅三处按本次数据推导的适配（首个 MACD 点不变量 / 浮板矩形读报告 / anchor≠forced-top）；演示验收仍用 `accept_macd_video_v122.py`（40 项） |
-| `engine_next/tests/test_timeline_bounds.py` | 时间轴边界矩阵回归：6 种事件分布 × 10 种交易日数 × 3 种帧数 = 180 组，断言首末覆盖/单调/零位移=0/最长死停=0 |
+| `engine_next/tests/test_timeline_bounds.py` | 时间轴回归：① V1.2.3 口径 6 种事件分布 × 10 种交易日数 × 3 种帧数 = 180 组，断言首末覆盖/单调/零位移=0/最长死停=0；② 封版口径（默认 `cost_domain="days"`）3 组参数的 POS 序列 SHA 逐位冻结，防止修短样本时把 V0.1 已发布画面改掉 |
 | `web/server.js` | 传输上限已上调：`MAX_BODY_BYTES = 5 MiB`（含 JSON 转义余量）；**文件级**上限仍是本契约的 2 MiB，由校验器判定 |
 | `web/src/validation.js` | 已注册 `macd` / `timeseries` / `cross_section` / `stock_ohlc`（V0.2 起）；C 类额外放行 `symbol` / `name` / `adjust` / `dividendCsvText` |
 | `web/src/adapters/stockOhlc.cjs` | C 类适配器（V0.2）：`import.json` → 八段结构 + 分红日历 → 复用封版回测 + **V1.2.3 渲染/验收**；核对 `source.csv` / `dividend.csv` SHA；解掉演示配置的浮板固定 y1；写 `conversion_manifest.json` 与 `accept_failures.json`；视频文案走 USER_IMPORT 档 |
@@ -683,4 +683,5 @@ C 类在下列门禁全部通过前不开放。**2026-11-16 更新：G-1 ~ G-6 �
 | 渲染（V1.2.3 实测） | 1584 帧 / 52.8 s / 1920×1080@30fps · 片尾 ¥117,347.32 vs ¥102,918.09 与 summary 一致 · 页脚 `数据：用户导入 · stock_ohlc.csv · SHA 0ff3d04350ab · 未复权` · 浮板 anchor=bottom（y1=331，曲线之上零遮挡） |
 | 独立验收 | **PASS 41 / FAIL 0**（`accept_macd_video_v123.py`；平滑度 zero=0/still=0/cv=0.2458/accel=0.198）→ 任务成功并交付 MP4 |
 | 时间轴边界 | `python engine_next/tests/test_timeline_bounds.py`：180 组（事件分布 × 交易日 34~5000 × 帧数 300/660/1320）全部首末覆盖、单调、零位移=0、最长死停=0 |
-| V0.1 演示回归 | `render_stock_macd_v122.py` + `accept_macd_video_v122.py`：回测自检 21/21，验收 **40/40 PASS**（共享时间轴修复后复测） |
+| V0.1 演示回归 | `render_stock_macd_v122.py` + `accept_macd_video_v122.py`：回测自检 21/21，验收 **40/40 PASS**（版本隔离后复测） |
+| V0.1 逐字节兼容性 | 用公开提交 `32418a7` 的工作树、同一份演示数据独立渲染：基线 SHA `6c556f297adc379d3a7f2c511b8f99ffae27d82c225c5fb805bbf2919196ab1f`；隔离后当前实现 SHA 与其**完全相同**。作为反证，把 V1.2.3 的 `cost_domain="intervals"` 直接共享给 V1.2.2 时 SHA 为 `31cf7a5fc13cf36b4788da349ac94c39923dadc62ac6392e8ebc01a7a897f538`（解析层 403/1320 帧取整像素漂移、最大 0.59px）→ 确认变化来自共享时间轴函数，故采用显式口径隔离 |

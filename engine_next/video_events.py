@@ -315,7 +315,7 @@ def build_warp_timeline(n_days, main_frames, key_indices, hold_frames=24,
 
 def build_smooth_timeline(n_days, frames, key_indices, hold_frames=30,
                           smooth_days=4.0, peak=18.0, hold_cap=0.42,
-                          min_step=1e-6, guard=None):
+                          min_step=1e-6, guard=None, cost_domain="days"):
     """「浮点 + 余弦核 + 密度自适应」的平滑时间轴（build_warp_timeline 的严选替代）。
 
     为什么需要它：build_warp_timeline 返回 int(round(k+frac))，当「帧数 < 天数」
@@ -330,11 +330,20 @@ def build_smooth_timeline(n_days, frames, key_indices, hold_frames=30,
       3) 密度自适应：相邻重点事件的慢放区重叠时按重叠量等比削减峰值，
          避免 3 个事件在 4 个月内叠成 0.6 秒死停（V1.2 开头即此情形）。
 
-    成本域构造不变：帧在成本轴上均匀铺开再反解，位置单调、事件日被多次采样。
+    成本域构造：帧在成本轴上均匀铺开再反解，位置单调、事件日被多次采样。
     峰值一次解出（核是线性的，extra = peak × Σshape），无需迭代。
-    成本域建在「日区间」而非「日」上（见下方 seg_cost）：位置值域 = [0, n_days-1]，
-    首末交易日必然被覆盖，尾部不再出现零位移帧（V1.2.3 修复）。
 
+    成本域口径由 cost_domain 显式选择（版本隔离，见下）：
+      "days"      封版口径 —— 把 n_days 个「日密度」直接当区间成本。末日后因此
+                  多出一个幻影区间，该区间里的帧反解出 k+frac > last，被
+                  min(last, …) 钳成同一位置 → 尾部零位移帧。V1.2.1 / V1.2.2
+                  （V0.1 演示）用它，**逐字节保持已发布结果**。
+      "intervals" 修正口径 —— 梯形积分把日密度折成 n_days-1 个真实区间成本，
+                  值域天然 = [0, n_days-1]，尾部不再有零位移帧。V1.2.3
+                  （用户 CSV）用它；260 日样本实测旧口径 4 帧零位移、34 日
+                  边界 46 帧，新口径均为 0。
+
+    :param cost_domain: 成本域口径，"days"（封版，默认）或 "intervals"（V1.2.3）
     :param hold_frames: 单个重点事件的**目标**慢放帧数（实际受重叠削减与 hold_cap 约束）
     :param hold_cap:    慢放帧数占总帧数比例的上限（防止事件过多时把影片拖成慢动作）
     :param min_step:    相邻帧最小推进量（保证严格单调，浮点下几乎不会触发）
@@ -379,13 +388,22 @@ def build_smooth_timeline(n_days, frames, key_indices, hold_frames=30,
     peak_eff = (extra_target / s_shape) if s_shape > 0 else 0.0
     peak_eff = max(0.0, min(float(peak), peak_eff))
 
-    # 成本域必须建在「日与日之间的区间」上：n_days 个交易日只有 n_days-1 个区间。
-    # V1.2.1/V1.2.2 直接把 n_days 个「日密度」当区间成本，末日后多出一个幻影区间，
-    # 该区间里的帧反解出 k+frac > last，被 min(last, …) 钳成同一位置 → 尾部零位移帧
-    # （260 日样本实测 4 帧；34 日边界样本 46 帧）。改用梯形积分把日密度折成区间成本，
-    # 末日权重落在最后一个真实区间，位置值域天然回到 [0, last]，无需钳制。
+    if cost_domain not in ("days", "intervals"):
+        raise ValueError("cost_domain 只能是 'days' 或 'intervals'：%r" % (cost_domain,))
+
+    # 成本域口径（版本隔离）：
+    #   "days"      —— V1.2.1/V1.2.2 封版实现。n_days 个日密度直接当区间成本，
+    #                  末日后多一个幻影区间，靠下面的 min(last, …) 钳制。V0.1 演示
+    #                  走这条，必须与原公开版本逐字节一致，不得改动。
+    #   "intervals" —— V1.2.3 修正。n_days 个交易日只有 n_days-1 个区间，梯形积分
+    #                  把日密度折成区间成本，末日权重落在最后一个真实区间，位置值域
+    #                  天然回到 [0, last]，无需钳制（旧口径在 260 日样本留 4 帧
+    #                  零位移、34 日边界留 46 帧）。
     cost = [1.0 + peak_eff * shape[d] for d in range(n_days)]
-    seg_cost = [0.5 * (cost[d] + cost[d + 1]) for d in range(n_days - 1)]
+    if cost_domain == "intervals":
+        seg_cost = [0.5 * (cost[d] + cost[d + 1]) for d in range(n_days - 1)]
+    else:
+        seg_cost = cost
     C = [0.0]
     for x in seg_cost:
         C.append(C[-1] + x)
