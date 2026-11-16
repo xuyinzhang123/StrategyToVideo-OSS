@@ -126,13 +126,21 @@ function resolveMapping(dataClass, headerFields, mapping) {
   }
 
   if (missing.length) {
+    // 到达这里的字段：既没显式映射，也没在表头里找到它的任一别名列。
+    // 前端会再细分为「文件里没有这类列」与「有列但没选映射」；服务端只负责
+    // 明确告知「表头里没有可识别的列」，避免仍用「还没指定」误导用户。
     return {
       ok: false,
       code: 'E_MAPPING_COLUMN',
-      message: `还没指定必填字段：${labelsOf(missing)}。文件实际表头：${listHeader(headerFields)}。`
-        + '请在页面的「列映射」里为它选择对应的列。',
+      message: `文件表头里没有识别到必填列：${labelsOf(missing)}（未找到这些字段的常用列名或同义列）。`
+        + `文件实际表头：${listHeader(headerFields)}。`
+        + '如果它们以别的列名存在，请在页面的「列映射」里明确选择对应列。',
       missing,
       missingLabels: missing.map(labelOf),
+      absent: missing,
+      absentLabels: missing.map(labelOf),
+      unmapped: [],
+      unmappedLabels: [],
       headers: headerFields.map((f) => f.text),
     };
   }

@@ -80,7 +80,7 @@
       userCsv: true,
       dataClass: 'stock_ohlc',
       executable: true,
-      badge: 'V0.2 · 用户 CSV · 股票日线 · MACD(12,26,9) → V1.2.2'
+      badge: 'V0.2 · 用户 CSV · 股票日线 · MACD(12,26,9) → V1.2.3'
     }
   };
 
@@ -375,6 +375,15 @@
     return '';
   }
 
+  // 区分「文件表头里根本没有这类列」与「文件里有可识别的列但用户还没映射」。
+  // 用同一份 alias 表判断，保证前端提示与后端 resolveMapping 的判定一致。
+  function hasAliasColumn(fieldKey) {
+    var fields = CSV_FIELDS[selected] || [];
+    var field = fields.filter(function (f) { return f.key === fieldKey; })[0];
+    if (!field) return false;
+    return !!guessColumn(csvState.headers, field.alias);
+  }
+
   function buildMappingUI(strategy) {
     var grid = findEl('map-grid');
     if (!grid) return;
@@ -403,14 +412,18 @@
     var status = findEl('map-status');
     var selects = Array.prototype.slice.call(document.querySelectorAll('#map-grid select'));
     if (!selects.length) { if (status) status.textContent = ''; return; }
-    var missing = [];
+    var unmapped = [];  // 文件里有常用列名，但用户还没把它选给这个字段
+    var absent = [];    // 文件表头里找不到这类列名（也没有可自动识别的同义列）
     var used = {};
     var dup = [];
     selects.forEach(function (s) {
       var label = s.parentNode.querySelector('label').textContent.replace('（必填）', '').replace('（可空）', '');
       s.classList.remove('field-bad');
       if (!s.value) {
-        if (s.getAttribute('data-required') === '1') { missing.push(label); s.classList.add('field-bad'); }
+        if (s.getAttribute('data-required') === '1') {
+          (hasAliasColumn(s.getAttribute('data-field')) ? unmapped : absent).push(label);
+          s.classList.add('field-bad');
+        }
         return;
       }
       if (used[s.value]) {
@@ -426,22 +439,30 @@
     var msgs = [];
     if (csvState.encodingBad) {
       msgs.push('文件编码不是 UTF-8，已暂停创建（见上方提示）。');
-    } else if (missing.length) {
-      msgs.push('还没选：' + missing.join('、') + '。选中后才能创建任务。');
-    } else if (dup.length) {
-      msgs.push(dup.join('；') + '。一列只能当一个字段用。');
     } else {
-      msgs.push('映射完整，可以创建任务。');
-      if (extra.length) msgs.push('未使用的列会被忽略：' + extra.join('、'));
+      if (absent.length) {
+        msgs.push('文件表头里没有识别到：' + absent.join('、') + '。请检查导出的列是否齐全；'
+          + '如果用了别的列名，也可以直接在上方映射里选它。');
+      }
+      if (unmapped.length) {
+        msgs.push('文件里有对应列但还没映射：' + unmapped.join('、') + '。请在上方为它选中一列。');
+      }
+      if (dup.length) {
+        msgs.push(dup.join('；') + '。一列只能当一个字段用。');
+      }
+      if (!absent.length && !unmapped.length && !dup.length) {
+        msgs.push('映射完整，可以创建任务。');
+        if (extra.length) msgs.push('未使用的列会被忽略：' + extra.join('、'));
+      }
     }
     if (stockErr) msgs.push(stockErr);
     if (status) {
       status.textContent = msgs.join(' ');
       status.className = 'map-status '
-        + (missing.length || dup.length || csvState.encodingBad || stockErr ? 'bad' : 'ok');
+        + (absent.length || unmapped.length || dup.length || csvState.encodingBad || stockErr ? 'bad' : 'ok');
     }
     createBtn.disabled = !csvState.text || !!csvState.encodingBad
-      || missing.length > 0 || dup.length > 0 || !!stockErr;
+      || absent.length > 0 || unmapped.length > 0 || dup.length > 0 || !!stockErr;
   }
 
   // 股票日线的前置元数据：代码必填且必须是 6 位数字。板块/复权/分红的真实校验在服务端，
@@ -659,12 +680,16 @@
         + '<div><b>状态</b>：' + task.status + '</div>';
       if (task.source) {
         html += '<div><b>源文件</b>：' + escapeHtml(task.source.fileName || '（未命名）')
-          + ' · ' + task.source.lines + ' 行 · ' + task.source.bytes + ' 字节'
+          + ' · 文本 ' + task.source.lines + ' 行（含表头'
+          + (task.source.dataLines != null ? '，' + task.source.dataLines + ' 条数据记录' : '') + '）'
+          + ' · ' + task.source.bytes + ' 字节'
           + ' · sha256:' + String(task.source.sha256 || '').slice(0, 12) + '…</div>';
       }
       if (task.dividend) {
         html += '<div><b>分红表</b>：' + escapeHtml(task.dividend.fileName || 'dividend.csv')
-          + ' · ' + task.dividend.lines + ' 行 · sha256:'
+          + ' · 文本 ' + task.dividend.lines + ' 行（含表头'
+          + (task.dividend.dataLines != null ? '，' + task.dividend.dataLines + ' 条数据记录' : '') + '）'
+          + ' · sha256:'
           + String(task.dividend.sha256 || '').slice(0, 12) + '…</div>';
       }
       if (task.warnings && task.warnings.length) {
@@ -745,18 +770,19 @@
     // 删除任务：会同时删掉任务目录（source.csv / 视频 / 日志）与运行目录，需两次点击确认
     if (task.status !== 'running') wsActions.appendChild(makeDeleteButton(task.taskId));
 
-    // 进度 / 视频
+    // 进度 / 视频：终态也要保留步骤清单，只是按成功/失败改标签，避免残留「进行中」
     if (task.status === 'running') {
-      showProgress(task);
+      showProgress(task, 'running');
       startPolling();
     } else {
       stopPolling();
-      if (task.status === 'success' && task.mp4) {
-        showVideo(task);
+      if (task.status === 'success' || task.status === 'failed') {
+        showProgress(task, task.status);
       } else {
         hideProgress();
-        hideVideo();
       }
+      if (task.status === 'success' && task.mp4) showVideo(task);
+      else hideVideo();
     }
 
     renderTrace(task);
@@ -842,18 +868,35 @@
     return String(v);
   }
 
-  // 阶段 4A：只展示真实可观测的阶段状态，不计算/展示任何百分比或虚构进度
-  function showProgress(task) {
+  // 阶段 4A：只展示真实可观测的阶段状态，不计算/展示任何百分比或虚构进度。
+  // 终态由页面按 task.status 映射：不改写后端 progress 里的真实记录。
+  //  success：所有已登记步骤都显示「已完成」；
+  //  failed ：最后一个 running 步骤改为「失败」，其余保留已完成 / 待执行。
+  function showProgress(task, terminalStatus) {
     wsProgress.hidden = false;
     var p = task.progress || {};
-    wsStatusText.textContent = '执行中：' + (p.currentStep || p.phase || '准备中');
+    var terminal = terminalStatus || task.status;
+    if (terminal === 'success') {
+      wsStatusText.textContent = '已完成：全部步骤通过';
+    } else if (terminal === 'failed') {
+      wsStatusText.textContent = '执行失败：' + ((task.error && task.error.message) || '请查看下方错误说明');
+    } else {
+      wsStatusText.textContent = '执行中：' + (p.currentStep || p.phase || '准备中');
+    }
     var steps = p.steps || [];
+    if (!steps.length && (terminal === 'success' || terminal === 'failed')) {
+      steps = [{ name: terminal === 'success' ? '任务完成' : '任务执行', state: terminal }];
+    }
     wsSteps.innerHTML = '';
     steps.forEach(function (s) {
       var name = typeof s === 'string' ? s : (s.name || s.tool || '阶段');
       var state = typeof s === 'string' ? 'pending' : (s.state || (s.ok ? 'done' : 'pending'));
-      var label = state === 'done' ? ' ✓ 已完成' : state === 'running' ? ' … 进行中' : ' · 待执行';
-      wsSteps.appendChild(el('<li class="' + state + '">' + name + label + '</li>'));
+      if (terminal === 'success') state = 'done';
+      else if (terminal === 'failed' && state === 'running') state = 'failed';
+      var label = state === 'done' ? ' ✓ 已完成'
+        : state === 'running' ? ' … 进行中'
+          : state === 'failed' ? ' ✗ 失败' : ' · 待执行';
+      wsSteps.appendChild(el('<li class="' + state + '">' + escapeHtml(name) + label + '</li>'));
     });
   }
   function hideProgress() { wsProgress.hidden = true; }

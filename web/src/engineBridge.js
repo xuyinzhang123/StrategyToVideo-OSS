@@ -10,7 +10,7 @@
 //   ratio_band   → adapters/ratioBand.cjs（阶段 3 已验证，行为不变）
 //   macd         → adapters/macd.cjs（阶段 4A 新增，离线可复现）
 //   dividend_etf → adapters/dividendEtf.cjs（阶段 4B 新增，A 级离线归档 + 独立验收）
-//   stock_ohlc   → adapters/stockOhlc.cjs（V0.2 新增，用户股票 CSV → MACD → V1.2.2，USER_IMPORT 标注）
+//   stock_ohlc   → adapters/stockOhlc.cjs（V0.2 新增，用户股票 CSV → MACD → V1.2.3，USER_IMPORT 标注）
 // 阶段 4B 起三条策略均已接入，E_STRATEGY_UNSUPPORTED 仅用于未知策略。
 //
 // 约束：
@@ -39,7 +39,7 @@ const UNIFIED = ratioBand.UNIFIED; // 兼容阶段 3 导出
 
 // 可执行策略 → 适配器
 // V0.2 预览：timeseries / cross_section 走同一个通用图表渲染器，只是数据类不同。
-// V0.2 股票通道：stock_ohlc 走 adapters/stockOhlc.cjs（用户 CSV → 八段结构 → MACD 回测 → V1.2.2 视频，
+// V0.2 股票通道：stock_ohlc 走 adapters/stockOhlc.cjs（用户 CSV → 八段结构 → MACD 回测 → V1.2.3 视频，
 // 全链路标注 USER_IMPORT，不复用 SIMULATED 语义）。
 const ADAPTERS = {
   ratio_band: ratioBand,

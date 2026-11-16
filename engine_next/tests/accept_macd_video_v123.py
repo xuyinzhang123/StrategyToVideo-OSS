@@ -221,7 +221,7 @@ check("assetTicks 自 0 起、等距、末项 = assetMax（本次 %s）" % TICKS
 check("assetMax 覆盖本次资产峰值且留白合理（峰值 %.2f / 上限 %.2f）" % (R["peakUsed"], AMAX),
       AMAX >= R["peakUsed"] - 1e-6 and AMAX <= R["peakUsed"] * 1.5 + 1e-6)
 
-print("== 9. 【V1.2.2】浮板缩小与零遮挡 ==")
+print("== 9. 【V1.2.3】浮板缩小与零遮挡 ==")
 pn = G["panel"]
 MT_, MB_ = G["mainTop"], G["mainBottom"]
 check("浮板宽度 ≤ 420px（V1.1 为 548）", pn["x2"] - pn["x1"] <= 420, "%dpx" % (pn["x2"] - pn["x1"]))

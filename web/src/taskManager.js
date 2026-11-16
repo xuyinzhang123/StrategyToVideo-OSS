@@ -18,6 +18,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
+const { countTextLines, countDataRecords } = require('./csv');
 
 // 与 server.js 同级的 web 目录：<root>/web
 const WEB_DIR = path.resolve(__dirname, '..');
@@ -175,7 +176,13 @@ function createTask(normalized) {
     const srcText = typeof normalized.sourceText === 'string' ? normalized.sourceText : '';
     const srcBuf = Buffer.from(srcText, 'utf8');
     const sha256 = crypto.createHash('sha256').update(srcBuf).digest('hex');
-    const sourceLines = srcText.length === 0 ? 0 : srcText.split(/\r\n|\n|\r/).length;
+    // 文本行数（含表头、不含末尾换行导致的多余空行）与实际数据记录数分开记，
+    // 后者直接用创建任务时已校验出的 rowCount，避免再解析一次原文产生口径漂移。
+    const sourceLines = countTextLines(srcText);
+    const modelRowCount = normalized.importModel && normalized.importModel.meta
+      ? normalized.importModel.meta.rowCount : undefined;
+    const sourceDataLines = Number.isInteger(modelRowCount)
+      ? modelRowCount : countDataRecords(srcText);
 
     fs.writeFileSync(path.join(dir, 'source.csv'), srcBuf);
 
@@ -189,7 +196,8 @@ function createTask(normalized) {
       dividend = {
         fileName: 'dividend.csv', archivedAs: 'dividend.csv',
         sha256: divSha, bytes: divBuf.length,
-        lines: divText.split(/\r\n|\n|\r/).length,
+        lines: countTextLines(divText),
+        dataLines: countDataRecords(divText),
       };
     }
 
@@ -199,6 +207,7 @@ function createTask(normalized) {
       sourceSha256: sha256,
       sourceBytes: srcBuf.length,
       sourceLines,
+      sourceDataLines,
       dividendSha256: dividend ? dividend.sha256 : null,
     });
 
@@ -208,6 +217,7 @@ function createTask(normalized) {
       sha256,
       bytes: srcBuf.length,
       lines: sourceLines,
+      dataLines: sourceDataLines,
       importedAt: normalized.importModel.meta.importedAt,
     };
 

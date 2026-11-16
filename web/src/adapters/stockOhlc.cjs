@@ -198,12 +198,19 @@ function applyUserImportLayout(vidCfg) {
 function applyUserImportCopy(vidCfg, model, fileName, sha12) {
   const m = model.meta;
   const adjustLabel = m.adjust === 'none' ? '未复权' : (m.adjust === 'qfq' ? '前复权 qfq' : '后复权 hfq');
-  const divDesc = m.hasDividends ? `含现金分红 ${m.dividendCount} 次` : '未含分红';
+  const divDesc = m.hasDividends ? `含现金分红 ${m.dividendCount} 次`
+    : '未提供分红表（除权跳空按价格下跌处理，结果不含现金分红）';
   const gapCount = (m.calendarGaps && m.calendarGaps.length) || 0;
   const gapDesc = gapCount > 0 ? `日历缺口 ${gapCount} 处` : '无日历缺口';
+  const feeDesc = m.hasDividends ? '含佣金、印花税、过户费与红利税'
+    : '含佣金、印花税、过户费（无红利税）';
   const copy = vidCfg.video.copy;
   copy.header_title = '用户导入：MACD 金叉买入、死叉卖出 vs 长期持有';
-  copy.header_sub = `USER_IMPORT ${adjustLabel} · ${divDesc} · ${gapDesc} · 100 股整数倍 · 含佣金、印花税、过户费与红利税`;
+  copy.header_sub = `USER_IMPORT ${adjustLabel} · ${divDesc} · ${gapDesc} · 100 股整数倍 · ${feeDesc}`;
+  if (!m.hasDividends) {
+    // 片尾总述同样不能笼统写「已扣除红利税」；有分红时保留封版文案不动。
+    copy.outro_top = '同样 10 万元 · {start} → {end} · 已扣除交易费用（未提供分红表，无红利税）';
+  }
   copy.footer_left = `数据：用户导入 · ${fileName} · SHA ${sha12} · ${adjustLabel}`;
   copy.intro_disclaimer = `本视频使用用户导入数据（${fileName}），不代表真实行情或实盘交易，不预示未来收益，不构成投资建议`;
   copy.outro_risk = `本视频使用用户导入数据（${fileName}），不代表真实行情，不构成投资建议。`;

@@ -108,4 +108,25 @@ function parseCsv(rawText) {
   return { ok: true, delimiter: detected.delimiter, counts: detected.counts, records };
 }
 
-module.exports = { parseCsv, detectDelimiter, stripBom, MAX_FILE_BYTES };
+// 源文件「文本行数」：按物理换行计数，文件末尾的换行符不算多出一行。
+// 与 parseCsv 的 record.line 保持同一套行号语义（第 1 行是表头），不参与留档字节改动。
+function countTextLines(rawText) {
+  const text = stripBom(String(rawText == null ? '' : rawText));
+  if (text === '') return 0;
+  const normalized = text.replace(/\r\n|\r/g, '\n');
+  const body = normalized.endsWith('\n') ? normalized.slice(0, -1) : normalized;
+  return body === '' ? 0 : body.split('\n').length;
+}
+
+// 实际数据记录数 = CSV 记录数 - 表头；空行与 validate.js 一样跳过。
+function countDataRecords(rawText) {
+  const parsed = parseCsv(rawText);
+  if (!parsed.ok) return 0;
+  const records = parsed.records.filter((r) => {
+    const f0 = r.fields[0];
+    return !(r.fields.length === 1 && !f0.quoted && f0.text.trim() === '');
+  });
+  return Math.max(0, records.length - 1);
+}
+
+module.exports = { parseCsv, detectDelimiter, stripBom, countTextLines, countDataRecords, MAX_FILE_BYTES };

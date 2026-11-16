@@ -18,6 +18,7 @@ const { spawnSync } = require('node:child_process');
 
 const ROOT = path.resolve(__dirname, '..');
 const { validateImport } = require(path.join(ROOT, 'web', 'src', 'import', 'validate'));
+const { countTextLines } = require(path.join(ROOT, 'web', 'src', 'csv'));
 const genericChart = require(path.join(ROOT, 'web', 'src', 'adapters', 'genericChart.cjs'));
 
 function parseArgs(argv) {
@@ -61,7 +62,7 @@ async function runOnce({ csvText, fileName, cls, title, unit, mapping, tag, work
   model.meta = Object.assign({}, model.meta, {
     sourceSha256,
     sourceBytes: buf.length,
-    sourceLines: csvText.split(/\r\n|\n|\r/).length,
+    sourceLines: countTextLines(csvText),
   });
   fs.writeFileSync(path.join(taskDir, 'import.json'), JSON.stringify(model, null, 2), 'utf8');
 
