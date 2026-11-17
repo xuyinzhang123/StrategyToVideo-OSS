@@ -48,6 +48,23 @@ Y_LEAD = 408
 Y_CONC = 1330
 Y_FOOT = 1500
 
+# ---- 自适应重排约束（任务 2）----
+# 纵向步长不再写死，改为「可用高度 ÷ 条目数」；可用高度 = 结论块顶边 − 起始 y。
+# 结论块顶边固定在安全区，不随条目数上浮；行高低于 MIN_ROW 或条目超过 MAX_ITEMS 时
+# 抛 E_CAPACITY，绝不硬挤（否则会叠字 / 越界 / 数组越界）。
+MIN_ROW = 96     # 单行最小高度（px）
+MAX_ITEMS = 8    # 任一版式最多条目数
+
+# 各纵向版式的 (起始 y, 结论块顶边)。结论块顶边固定，条目区在其上方等分。
+# dual_metrics / row_list 阶段 0 没有独立结论块，用其内容区底边作为可用高度下界。
+LAYOUT_BOUNDS = {
+    "dual_metrics": (640, 1150),
+    "bar_scale": (600, 1130),
+    "row_list": (660, 1300),
+    "decay_bars": (660, 1180),
+    "split_bar": (560, 1180),
+}
+
 DEFAULT_STYLE = {
     "bg_base": [16, 9, 12],
     "bg_glow": [62, 6, 9],
@@ -69,6 +86,10 @@ FONT_CANDIDATES = {
 
 _FONT_CACHE = {}
 _FONT_PATHS = {}
+
+# 只读布局调试记录：每次渲染版式后写入该屏的几何，供独立验收断言不重叠。
+# 不进入 render_report、不改 report schema，仅进程内可观测。
+LAYOUT_DEBUG = {}
 
 
 # --------------------------------------------------------------------------
@@ -151,6 +172,27 @@ def seg(t, a, b):
     if b <= a:
         return 1.0
     return max(0.0, min(1.0, (t - a) / (b - a)))
+
+
+def adaptive_step(kind, n, sid):
+    """返回 (起始 y, 步长, 结论块顶边)：步长 = (结论顶边 - 起始 y) / n。
+
+    n<=1 时不均分（步长取 0，调用方按单点处理）。
+    超过 MAX_ITEMS 或行高不足 MIN_ROW 时抛 E_CAPACITY，非 0 退出——宁可报错也不叠字。
+    """
+    start_y, bottom = LAYOUT_BOUNDS[kind]
+    if n < 0:
+        n = 0
+    if n > MAX_ITEMS:
+        raise SystemExit("E_CAPACITY: %s 最多 %d 项，本屏 %s 有 %d 项"
+                         % (kind, MAX_ITEMS, sid, n))
+    step = 0.0 if n <= 1 else (bottom - start_y) / float(n)
+    if n > 1 and step < MIN_ROW:
+        # 反推在当前几何下最多能放几项，给出可执行的错误提示
+        max_fit = int((bottom - start_y) // MIN_ROW)
+        raise SystemExit("E_CAPACITY: %s 最多 %d 项，本屏 %s 有 %d 项（行高 %.1fpx < %dpx）"
+                         % (kind, max_fit, sid, n, step, MIN_ROW))
+    return start_y, step, bottom
 
 
 _COUNT_UP = True
@@ -334,24 +376,34 @@ def k_hook_number(img, dr, sc, style, t, meta):
 def k_dual_metrics(img, dr, sc, style, t, meta):
     chapter_label(dr, sc, style, seg(t, 0.0, 0.25))
     items = sc.get("items") or []
-    base_y = 640
-    step = 350
+    base_y, step, _ = adaptive_step("dual_metrics", len(items), sc.get("id", ""))
+    # 数字与标签随可用行高缩放，保证 1..8 项都落在自己的行内不叠字。
+    size = min(158, max(56, int(step * 0.52))) if step > 0 else 158
+    unit_size = max(24, int(size * 0.4))
+    label_gap = max(34, int(size * 0.38))
     for i, it in enumerate(items):
-        cy = base_y + i * step
+        cy = base_y + (i + 0.5) * step if step > 0 else base_y
         vcol = it.get("valueColor")
         ucol = it.get("unitColor")
         if not vcol and not ucol:
             vcol = style["accent"] if it.get("accent") else style["accent2"]
             ucol = vcol
         big_number(dr, W / 2, cy, it.get("value", ""), it.get("unit", ""), style,
-                   size=158, color=vcol or style["text"], unit_color=ucol,
-                   unit_size=64, p=seg(t, 0.12 + i * 0.18, 0.5 + i * 0.18))
+                   size=size, color=vcol or style["text"], unit_color=ucol,
+                   unit_size=unit_size, p=seg(t, 0.12 + i * 0.18, 0.5 + i * 0.18))
         if it.get("label"):
-            f = F("reg", 34)
-            draw_text(dr, (W / 2, cy + 60), it["label"], f, style["text_dim"],
+            fs = min(34, max(22, int(step * 0.18))) if step > 0 else 34
+            f = F("reg", fs)
+            draw_text(dr, (W / 2, cy + label_gap), it["label"], f, style["text_dim"],
                       anchor="ms")
         if i == 0 and len(items) > 1:
-            hline(dr, W / 2 - 120, W / 2 + 120, cy + 160, [92, 40, 46], 2)
+            hline(dr, W / 2 - 120, W / 2 + 120, cy + label_gap + 24, [92, 40, 46], 2)
+    if len(items):
+        LAYOUT_DEBUG[sc.get("id", "dual_metrics")] = {
+            "kind": "dual_metrics", "items": len(items), "step": step,
+            "items_bottom": base_y + len(items) * step,
+            "conclusion_top": LAYOUT_BOUNDS["dual_metrics"][1],
+        }
 
 
 def k_dot_matrix(img, dr, sc, style, t, meta):
@@ -420,23 +472,33 @@ def k_bar_scale(img, dr, sc, style, t, meta):
     maxv = max([b.get("value", 0) for b in bars] + [1])
     value_col = 210                                   # 右侧数值列，条长只在剩余宽度里伸缩
     track_w = W - 2 * MARGIN - value_col - 16
-    y = 600
+    y0, step, conc_y = adaptive_step("bar_scale", len(bars), sc.get("id", ""))
+    # 条高随行高缩放，保证标签 + 条 + 数值整组都落在自己的行内。
+    bar_h = max(28, min(46, int(step * 0.34))) if step > 0 else 46
+    label_size = min(34, max(24, int(step * 0.22))) if step > 0 else 34
+    value_size = min(38, max(26, int(step * 0.26))) if step > 0 else 38
     for i, b in enumerate(bars):
-        f, _ = fit(b.get("label", ""), "reg", track_w + value_col, 34)
+        y = y0 + i * step if step > 0 else y0
+        f, _ = fit(b.get("label", ""), "reg", track_w + value_col, label_size)
         draw_text(dr, (MARGIN, y), b.get("label", ""), f,
                   style["accent"] if b.get("accent") else style["text"])
-        ty = y + 22
-        rrect(dr, [MARGIN, ty, MARGIN + track_w, ty + 46], 23, style["track"])
+        ty = y + max(18, int(bar_h * 0.5))
+        rrect(dr, [MARGIN, ty, MARGIN + track_w, ty + bar_h], bar_h / 2.0, style["track"])
         w = max(8.0, track_w * b.get("value", 0) / maxv * ease(seg(t, 0.12 + i * 0.1, 0.6 + i * 0.1)))
         tone = style["accent"] if b.get("accent") else style["block_light"]
-        rrect(dr, [MARGIN, ty, MARGIN + w, ty + 46], 23, tone)
-        fb, _ = fit(b.get("display", ""), "bold", value_col, 38)
+        rrect(dr, [MARGIN, ty, MARGIN + w, ty + bar_h], bar_h / 2.0, tone)
+        fb, _ = fit(b.get("display", ""), "bold", value_col, value_size)
         label = b.get("display", "")
-        draw_text(dr, (W - MARGIN, ty + 40), label, fb,
+        draw_text(dr, (W - MARGIN, ty + bar_h - 6), label, fb,
                   style["accent"] if b.get("accent") else style["block_light"],
                   anchor="rs")
-        y += 148
-    conclusion_block(dr, sc, style, y=1130, size=64, p=seg(t, 0.55, 0.9))
+    n_bars = len(bars)
+    last_bottom = y0 + (max(1, n_bars) - 1) * step + max(18, int(bar_h * 0.5)) + bar_h
+    LAYOUT_DEBUG[sc.get("id", "bar_scale")] = {
+        "kind": "bar_scale", "items": n_bars, "step": step,
+        "items_bottom": last_bottom, "conclusion_top": conc_y,
+    }
+    conclusion_block(dr, sc, style, y=conc_y, size=64, p=seg(t, 0.55, 0.9))
 
 
 def k_split_bar(img, dr, sc, style, t, meta):
@@ -512,39 +574,50 @@ def k_decay_bars(img, dr, sc, style, t, meta):
     chapter_label(dr, sc, style, seg(t, 0.0, 0.15))
     lead_line(dr, sc, style, seg(t, 0.05, 0.22))
     bars = sc.get("bars") or []
-    if len(bars) < 2:
-        return
     base_y, top_y = 1060, 660
+    # 横向位置由条目数均分（阶段 0 写死两个 x，3 根即 IndexError）。
+    _, _, conc_y = adaptive_step("decay_bars", len(bars), sc.get("id", ""))
+    n = len(bars)
+    if n == 0:
+        conclusion_block(dr, sc, style, y=conc_y, size=48, p=seg(t, 0.6, 0.95))
+        return
+    span = W - 2 * MARGIN
+    slot = span / float(n)
+    bw = min(200, slot * 0.52)
+    centers = [MARGIN + (i + 0.5) * slot for i in range(n)]
+    xs = [c - bw / 2 for c in centers]
     maxv = max(b.get("value", 0) for b in bars) or 1
-    bw = 200
-    xs = [W * 0.24 - bw / 2, W * 0.72 - bw / 2]
+    heights = []
     for i, b in enumerate(bars):
         h = (base_y - top_y) * b.get("value", 0) / maxv * ease(seg(t, 0.15 + i * 0.2, 0.7 + i * 0.2))
+        heights.append(h)
         tone = style["accent"] if b.get("accent") else style["block_light"]
         if h > 2:
             dr.rectangle([xs[i], base_y - h, xs[i] + bw, base_y], fill=tuple(tone))
-        fb, _ = fit(b.get("display", ""), "bold", bw + 60, 88)
-        draw_text(dr, (xs[i] + bw / 2, base_y - h - 24), b.get("display", ""), fb, tone,
+        fb, _ = fit(b.get("display", ""), "bold", slot, min(88, max(44, int(slot * 0.4))))
+        draw_text(dr, (centers[i], base_y - h - 24), b.get("display", ""), fb, tone,
                   anchor="ms")
-    # 衰减虚线：从高柱右上角跌向低柱顶端
-    h0 = (base_y - top_y) * bars[0].get("value", 0) / maxv
-    h1 = (base_y - top_y) * bars[1].get("value", 0) / maxv
-    x0, y0 = xs[0] + bw, base_y - h0
-    x1, y1 = xs[1], base_y - h1
+    # 衰减虚线：依次连接每根柱顶（相邻柱之间各画一段），任一条目数都成立。
     dp = ease(seg(t, 0.5, 0.95))
-    n = 9
-    for i in range(n):
-        u = i / (n - 1.0) * dp
-        px = x0 + (x1 - x0) * u
-        py = y0 + (y1 - y0) * (u ** 1.6)
-        r = 4.0
-        dr.ellipse([px - r, py - r, px + r, py + r], fill=tuple(style["accent"]))
+    for i in range(n - 1):
+        x0, y0 = xs[i] + bw, base_y - heights[i]
+        x1, y1 = xs[i + 1], base_y - heights[i + 1]
+        for j in range(9):
+            u = j / 8.0 * dp
+            px = x0 + (x1 - x0) * u
+            py = y0 + (y1 - y0) * (u ** 1.6)
+            r = 4.0
+            dr.ellipse([px - r, py - r, px + r, py + r], fill=tuple(style["accent"]))
     hline(dr, MARGIN, W - MARGIN, base_y, [82, 44, 50], 2)
     for i, b in enumerate(bars):
-        f, _ = fit(b.get("label", ""), "reg", 380, 28)
-        draw_text(dr, (xs[i] + bw / 2, base_y + 46), b.get("label", ""), f,
+        f, _ = fit(b.get("label", ""), "reg", slot, min(28, max(20, int(slot * 0.16))))
+        draw_text(dr, (centers[i], base_y + 46), b.get("label", ""), f,
                   style["text_dim"], anchor="ms")
-    conclusion_block(dr, sc, style, y=1180, size=48, p=seg(t, 0.6, 0.95))
+    LAYOUT_DEBUG[sc.get("id", "decay_bars")] = {
+        "kind": "decay_bars", "items": n, "step": 0.0,
+        "items_bottom": base_y + 46, "conclusion_top": conc_y,
+    }
+    conclusion_block(dr, sc, style, y=conc_y, size=48, p=seg(t, 0.6, 0.95))
 
 
 def k_row_list(img, dr, sc, style, t, meta):
@@ -553,28 +626,42 @@ def k_row_list(img, dr, sc, style, t, meta):
         f, _ = fit(sc["headline"], "bold", W - 2 * MARGIN, 82)
         draw_text(dr, (MARGIN, 520), sc["headline"], f, style["text"])
     rows = sc.get("rows") or []
-    y = 660
+    y0, step, bottom_limit = adaptive_step("row_list", len(rows), sc.get("id", ""))
+    n = len(rows)
+    label_size = min(52, max(30, int(step * 0.35))) if step > 0 else 52
+    tag_size = min(34, max(22, int(step * 0.23))) if step > 0 else 34
     for i, r in enumerate(rows):
+        y = y0 + i * step if step > 0 else y0
         a = ease(seg(t, 0.15 + i * 0.12, 0.45 + i * 0.12))
-        fl, _ = fit(r.get("label", ""), "bold", 560, 52)
-        dr.rectangle([MARGIN, y + 12, MARGIN + int(6 * a), y + 50],
+        fl, _ = fit(r.get("label", ""), "bold", 560, label_size)
+        bar_top = y + max(8, int(step * 0.08)) if step > 0 else y + 12
+        bar_bot = min(y + 50, y + step - 8) if step > 0 else y + 50
+        dr.rectangle([MARGIN, bar_top, MARGIN + int(6 * a), bar_bot],
                      fill=tuple(style["accent"] if r.get("accent") else style["track"]))
-        draw_text(dr, (MARGIN + 22, y + 50), r.get("label", ""), fl,
+        draw_text(dr, (MARGIN + 22, y + label_size + 6), r.get("label", ""), fl,
                   style["accent"] if r.get("accent") else style["text"])
-        ft, _ = fit(r.get("tag", ""), "reg", 380, 34)
-        draw_text(dr, (W - MARGIN, y + 46), r.get("tag", ""), ft,
+        ft, _ = fit(r.get("tag", ""), "reg", 380, tag_size)
+        draw_text(dr, (W - MARGIN, y + label_size + 2), r.get("tag", ""), ft,
                   style["accent"] if r.get("accent") else style["text_faint"],
                   anchor="rs")
-        hline(dr, MARGIN, W - MARGIN, y + 92, [64, 42, 46], 2)
-        y += 150
+        hline(dr, MARGIN, W - MARGIN, min(y + step - 6, y0 + n * step - 4) if step > 0 else y + 92,
+              [64, 42, 46], 2)
+    # 底部块锚定在「最后一行的分隔线之后」，随行数下移但不与行区重叠。
+    # 行区结束 = y0 + n*step；bottom_limit 是允许的最大底边，取二者较大者。
+    rows_end = y0 + n * step if step > 0 else y0 + 92
+    by = max(rows_end + 8, bottom_limit - 150)
     b = sc.get("bottom") or {}
     if b:
         if b.get("lead"):
             f, _ = fit(b["lead"], "reg", W - 2 * MARGIN, 34)
-            draw_text(dr, (MARGIN, y + 56), b["lead"], f, style["text"])
-        big_number(dr, MARGIN, y + 220, b.get("value", ""), b.get("unit", ""), style,
-                   size=120, color=style["accent"], unit_size=56,
+            draw_text(dr, (MARGIN, by), b["lead"], f, style["text"])
+        big_number(dr, MARGIN, by + 138, b.get("value", ""), b.get("unit", ""), style,
+                   size=116, color=style["accent"], unit_size=54,
                    p=seg(t, 0.5, 0.8), anchor="ls")
+    LAYOUT_DEBUG[sc.get("id", "row_list")] = {
+        "kind": "row_list", "items": n, "step": step,
+        "items_bottom": rows_end, "conclusion_top": by,
+    }
 
 
 def k_outro(img, dr, sc, style, t, meta):
@@ -614,6 +701,27 @@ KINDS = {
     "outro": k_outro,
 }
 
+# ---- 版式容量（任务 2 自适应后由几何推导，取代任务 1 的写死上限）----
+# 放宽口径：上限 = min(MAX_ITEMS, floor(可用高度 / MIN_ROW))，与 adaptive_step 同一公式。
+# 旧实测上限（bar_scale3 / dual_metrics3 / row_list4 / decay_bars2 / split_bar6）
+# 是写死步长时代的产物，自适应后不再适用，已删除，避免留下过时表。
+# dot_matrix / dense_grid 用固定 cols×rows 画点阵，条目数不进入纵向布局，故不限。
+def _capacity_of(kind):
+    if kind not in LAYOUT_BOUNDS:
+        return None
+    start_y, bottom = LAYOUT_BOUNDS[kind]
+    return min(MAX_ITEMS, int((bottom - start_y) // MIN_ROW))
+
+
+BASE_CAPS = {k: _capacity_of(k) for k in LAYOUT_BOUNDS}
+CAPACITY_FIELD = {
+    "bar_scale": "bars",
+    "dual_metrics": "items",
+    "row_list": "rows",
+    "decay_bars": "bars",
+    "split_bar": "segments",
+}
+
 
 # --------------------------------------------------------------------------
 # 装载 / 校验
@@ -632,6 +740,15 @@ def load_report(path):
                              % (i + 1, sc.get("kind"), sorted(KINDS)))
         if not isinstance(sc.get("duration"), (int, float)) or sc["duration"] <= 0:
             raise SystemExit("E_DURATION: 第 %d 屏 duration 非法" % (i + 1))
+        # 容量门禁：阶段 0 写死步长，超限时宁可报错也不叠字 / 崩溃。
+        # sid 取自 report（不是屏号），便于按分镜 id 定位问题屏。
+        kind = sc["kind"]
+        if kind in BASE_CAPS:
+            n_items = len(sc.get(CAPACITY_FIELD[kind]) or [])
+            cap = BASE_CAPS[kind]
+            if n_items > cap:
+                raise SystemExit("E_CAPACITY: %s 最多 %d 项，本屏 %s 有 %d 项"
+                                 % (kind, cap, sc.get("id", "#%d" % (i + 1)), n_items))
     if (rep.get("meta") or {}).get("width", W) != W or (rep.get("meta") or {}).get("height", H) != H:
         raise SystemExit("E_CANVAS: 阶段 0 只支持 %dx%d" % (W, H))
     if (rep.get("meta") or {}).get("fps", FPS) != FPS:

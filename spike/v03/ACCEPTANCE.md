@@ -2,11 +2,16 @@
 
 | 项 | 值 |
 |---|---|
-| 日期 | 2026-11-16 |
+| 日期 | 2026-11-16（阶段 0 建立）· 2026-11-17（容量校验 + 纵向自适应重排） |
 | 分支 | `feat/v0.3-phase0-storyboard`（自 `origin/main` @ `5884e0f` 切出） |
 | 本轮性质 | spike / 阶段 0，不进发布节奏，不合并 main |
 | 环境 | Windows · Python 3.13.14 · Pillow 13.0.0 · imageio-ffmpeg 0.8.1（ffmpeg 9.0.2）· Node v22.22.2 |
 | 真实数据 | 无。所有数字为手写常量或用户提供的参考样片口述值 |
+
+> **2026-11-17 增量**：修复阶段 0 遗留的「版式纵向步长写死」缺陷。原实现 `bar_scale` 3 条以上压结论、
+> `row_list` 6 行压页脚、`decay_bars` 3 根因 `xs` 只有两个位置直接 `IndexError`、`dual_metrics` 3 项节奏散。
+> 本轮做两件事：① 容量门禁 `E_CAPACITY`（宁可报错不许叠字）；② 纵向步长改为「可用高度 ÷ 条目数」，
+> 结论块固定在安全区。验收从 24 项扩到 **31 项**（新增 D 组 7 项容量用例）。既有四条出片链零改动。
 
 ## 1. 交付物
 
@@ -35,10 +40,14 @@
 ### 2.2 自检片（20.0s，10 屏）
 
 ```
-通过 24 项，警告 0 项，失败 0 项
+通过 31 项，警告 0 项，失败 0 项
 ```
 
-### 2.3 24 项都验了什么
+> 2026-11-16 阶段 0 建立时为 24 项；2026-11-17 扩为 31 项（D 组容量用例）。
+> 自检片重渲后帧数 600 / 20.0s 不变；因纵向布局几何调整，探针帧与成片 SHA 变化属预期，不是回归。
+> 当前 `probe_frame_sha256=ce50b0ed…`、`video_sha256=07307b95…`（本机 msyh 字体，跨机器会变）。
+
+### 2.3 31 项都验了什么
 
 | 组 | 项 | 判据 |
 |---|---|---|
@@ -65,9 +74,55 @@
 | | C6 | 背景非纯黑（径向渐变存在） |
 | | C7 | 探针帧 SHA 可复现 |
 | | C8 | 成片 SHA 与 render_report 一致 |
+| D 容量 | D1–D3 | 三条压力片（5 条比例条 / 6 行列表 / 3 根柱）渲染不崩、不越界 |
+| | D4 | 3 根柱横向位置互不重叠 |
+| | D5–D6 | 条目区底边 ≤ 结论块（底块）顶边，客观几何断言 |
+| | D7 | 超几何上限抛 `E_CAPACITY`，不硬挤 |
 
 **B 组是关键**：它不允许图形「看着差不多」，只允许「由 report 里的数字算出来」。
 点阵亮格、条长、细条宽度、分段占比，全部可独立复算。
+**D 组是本次新增的关键**：它不允许「超容量时叠字或崩溃」，只允许「排得下就排、排不下就明确报错」。
+
+## 2.4 容量表与纵向自适应（2026-11-17）
+
+步长从写死常量改为 `step = (结论块顶边 − 起始 y) ÷ 条目数`。结论块顶边固定在安全区，
+不随条目数上浮；行高下限 `MIN_ROW=96px`、条目上限 `MAX_ITEMS=8`。超限抛 `E_CAPACITY`、非 0 退出。
+
+| 版式 | 起始 y → 结论块顶边 | 可用高度 | 本轮放宽后上限 | 阶段 0 旧上限 |
+|---|---|---|---|---|
+| `dual_metrics` | 640 → 1150 | 510px | **5** | 3（3 项节奏散）|
+| `bar_scale` | 600 → 1130 | 530px | **5** | 3（5 条压结论）|
+| `row_list` | 660 → 1300 | 640px | **6** | 4（6 行压页脚）|
+| `decay_bars` | 660 → 1180 | 520px | **5** | 2（3 根 IndexError）|
+| `split_bar` | 560 → 1180 | 620px | **6**（横向分段，另有宽度约束）| 6 |
+| `dot_matrix` / `dense_grid` | — | — | 不限（固定 cols×rows 点阵）| 不限 |
+
+上限公式统一为 `min(MAX_ITEMS, floor(可用高度 / MIN_ROW))`，与 `adaptive_step()` 同一口径，
+load_report 的 `BASE_CAPS` 由该公式派生，不留第二份过时表。
+
+### 三条压力片实测（逐帧肉眼核对）
+
+| 压力片 | 条目数 | 渲染 | 肉眼结论 | SHA-256（本机）|
+|---|---|---|---|---|
+| `bar_scale` | 5 条比例条 | 成功 | 5 条标签 + 条 + 数值齐全，结论「6 分钟，出一条」不被压，均在画面内 | `ca1c316c…` |
+| `row_list` | 6 行列表 | 成功 | 6 行名称 + 标签齐全；底块「可回溯到源文件的比例：100%」与第 6 行、页脚均有间距，不叠字 | `f2c64c22…`（初次）→ 终版见下 |
+| `decay_bars` | 3 根柱 | 成功 | 3 根柱 + 数值 + 标签 + 逐段衰减虚线齐全，结论不遮挡 | `98a1a033…` |
+
+> `row_list` 首版底块压住第 5/6 行、随后又与页脚贴得过近，两次调整（底块锚点改为「最后一行分隔线之后」、
+> 字号 116 / 偏移 +138）后复渲，终版 31 项验收 D 组全过。终版压力片渲染在
+> `output/probe_v03_stress/`（已 gitignore，不入库），命令见第 6 节。
+
+### 容量矩阵（0–8 项，验证「能排就排、排不下明确拒绝、绝不崩溃」）
+
+| 版式 | 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 |
+|---|---|---|---|---|---|---|---|---|---|
+| bar_scale | OK | OK | OK | OK | OK | OK | E_CAP | E_CAP | E_CAP |
+| row_list | OK | OK | OK | OK | OK | OK | OK | E_CAP | E_CAP |
+| decay_bars | OK | OK | OK | OK | OK | OK | E_CAP | E_CAP | E_CAP |
+| dual_metrics | OK | OK | OK | OK | OK | OK | E_CAP | E_CAP | E_CAP |
+| split_bar | OK | OK | OK | OK | OK | OK | OK | OK | OK |
+
+无任何 `CRASH`（含原 `decay_bars` 的 `IndexError`）；全部越界都以 `E_CAPACITY` 非 0 退出。
 
 ## 3. 回归证据：股票回测出片没被碰到
 
@@ -76,13 +131,28 @@
 | `git diff --stat origin/main -- engine_next/render_stock_macd_v122.py render_stock_macd_v123.py render_generic_chart.py backtest_stock_macd.cjs engine_next/lib web/ tools/ docs/ package.json README.md` | **空**（零改动） |
 | `npm run check:samples` | PASS 30 / FAIL 0 |
 | `npm run check:api`（PORT=8099） | PASS 6 / FAIL 0，`executableStrategies` 仍为 macd / timeseries / cross_section / stock_ohlc |
-| `python engine_next/tests/test_timeline_bounds.py` | 全部达标；封版口径 `6d8321f0…` / `0baf5d3b…` 逐位冻结未变 |
-| **用同一条股票数据重渲一次**（`--run regress_v03_stock --source web_8f0f6bbd…`） | 新片 SHA-256 `12a4946c…1cf16b5`，与旧片**逐字节相同**，1,333,137 B |
-| 重渲片跑 V1.2.3 验收 | PASS 41 / FAIL 0 |
-| 既有 V0.1 演示跑 V1.2.2 验收 | PASS 40 / FAIL 0 |
+| `python engine_next/tests/test_timeline_bounds.py`（带 `PYTHONPATH=deps`） | 全部达标；封版口径 `58065a26…` / `6d8321f0…` / `0baf5d3b…` 逐位冻结未变 |
+| 既有 V0.1 演示重渲 + V1.2.2 验收 | 1584 帧 / 52.8s 出片成功；`accept_macd_video_v122.py` **PASS 40 / FAIL 0** |
 
-「零 diff」只是静态证据；**重渲出一条逐字节相同的股票回测片 + 41 项全过**才是动态证据。
-两条一起，说明这轮新增的渲染器与新增的 fixture 对股票回测路径没有任何影响。
+### 3.1 V1.2.3 的 41 项：本轮未复跑（原因与替代证据）
+
+**本轮未复跑 `accept_macd_video_v123.py` 的 41 项，原因：它依赖一条 `stock_ohlc` 的网页运行产物
+（`web/tasks/<id>/` 与 `output/web_<id>/`），这两个目录不入库，全新 clone 里没有该 run 数据。**
+2026-11-16 阶段 0 建立时曾复跑过一次（41/41，见旧记录），那是当时本地残留的 run；2026-11-17
+这次是干净分支接续，没有该 run，故如实跳过，不声称「41/41 通过」。
+
+替代证据（两条，均为本轮实测）：
+
+1. **静态零 diff**：`git diff --stat origin/main(5884e0f) -- <既有出片链路径>` 输出为空 ——
+   `render_stock_macd_v122.py` / `render_stock_macd_v123.py` / `render_generic_chart.py` /
+   `backtest_stock_macd.cjs` / `web/` / `tools/` / `docs/` / `package.json` / `README.md` 全部零改动。
+   本轮只改 `engine_next/render_story_v030.py` 与 `spike/v03/accept_story_v030.py`。
+2. **动态同基建**：V0.1 演示片在本轮重新渲染并跑 V1.2.2 验收 40/40；它与 V1.2.3 共用同一套
+   时间轴（`video_events.py`）与渲染基建，时间轴 3 组冻结 SHA 本轮也未变。
+
+如需本轮补跑 41 项：起服务 → `POST /api/tasks`（传 `docs/samples/stock_ohlc.csv`，
+`dataClass=stock_ohlc`）→ `POST /api/tasks/<id>/execute` → 对生成的 run 跑 v123 验收。
+本轮按边界未做（超过 30 分钟不值得，且非任务书必跑项）。
 
 ## 4. 与参考样片的差异（如实列出）
 
@@ -118,17 +188,22 @@
 ## 6. 复现命令
 
 ```bash
+# 所有 Python 渲染命令都带 PYTHONPATH=deps（依赖装在 deps/ 下）
 # 自检片（入库 fixture）
-python engine_next/render_story_v030.py --report spike/v03/report.simulated.json \
+PYTHONPATH=deps python engine_next/render_story_v030.py --report spike/v03/report.simulated.json \
   --out output/v03_story/simulated --storyboard spike/v03/storyboard.simulated.md \
   --keyframes output/v03_story/simulated/keyframes
-python spike/v03/accept_story_v030.py --report spike/v03/report.simulated.json \
+PYTHONPATH=deps python spike/v03/accept_story_v030.py --report spike/v03/report.simulated.json \
   --render-dir output/v03_story/simulated
 
 # 对照片（本地，需自备 report.json）
-python engine_next/render_story_v030.py --report output/v03_story/reference/report.json \
+PYTHONPATH=deps python engine_next/render_story_v030.py --report output/v03_story/reference/report.json \
   --out output/v03_story/reference --storyboard output/v03_story/reference/storyboard.md
 ```
+
+三条压力片在 `accept_story_v030.py` 的 D 组里由内存构造、无需外部文件；若要单独肉眼看帧，
+可在 Python 里 `copy.deepcopy` 基线 report 的对应屏，分别塞入 5 bars / 6 rows / 3 bars 后调用渲染器，
+输出放到 `output/probe_v03_stress/`（已 gitignore）。D1–D7 已覆盖同样的断言，是必跑的一部分。
 
 跨机器注意：同机同依赖两次出片逐字节相同；换机器因 `msyh.ttc`/`msyhbd.ttc` 版本差异，
 成片 SHA 会不同（与 V0.2 的结论一致，探针帧 SHA 也一样会变）。

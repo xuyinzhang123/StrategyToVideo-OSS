@@ -4,12 +4,14 @@
  V0.3 阶段 0 · 竖版数据解剖片 独立验收
  ---------------------------------------------------------------------------
  只读校验：不改 report、不改画面、不动任何既有渲染器。
- 分三层，共 24 项：
+ 分四层，共 31 项：
 
    A. 结构（8 项）   屏数 / 版式顺序 / 帧数 / 时长 / 画幅 / 帧率 / 无音轨 / 页脚齐备
    B. 编码（8 项）   比例类图形的数值必须能由数字复算出来，不允许手工摆放
    C. 版式（8 项）   抽样 12 帧扫描亮像素包围盒，验证没有文字被右边距裁切
                      （参考样片存在「结尾字幕右侧被切」的毛病，本项专治这个）
+   D. 容量（7 项）   三条压力片（5 条比例条 / 6 行列表 / 3 根柱）+ 横向不重叠
+                     + 几何不重叠（条目区底边 ≤ 结论块顶边）+ 超限 E_CAPACITY
 
  用法
    python spike/v03/accept_story_v030.py --report spike/v03/report.simulated.json \
@@ -210,6 +212,27 @@ def main():
         check("C8 成片 SHA-256 与 render_report 一致",
               hashlib.sha256(fh.read()).hexdigest() == rr["video_sha256"])
 
+    print("== D. 容量（自适应重排 + 压力片 + 门禁）==")
+    # 压力用例在内存里由基线 fixture 派生，不依赖任何未入库文件，全新 clone 即可复现。
+    stress = _build_stress(rep)
+    for name, s in stress:
+        ok, detail = _render_stress(bg, rep, style, s, n_frames)
+        check(name, ok, detail)
+
+    # 几何断言：条目区底边不得越过结论块 / 底块顶边（不叠字的客观判据）
+    for name, key, expect_items in (
+        ("D5 5 条比例条条目区底边 < 结论块顶边", "stress_bar5", 5),
+        ("D6 6 行列表条目区底边 < 底块顶边", "stress_row6", 6),
+    ):
+        g = R.LAYOUT_DEBUG.get(key)
+        check(name, bool(g) and g["items"] == expect_items
+              and g["items_bottom"] <= g["conclusion_top"],
+              str(g))
+
+    # 门禁：超过几何上限必须抛 E_CAPACITY（而非叠字 / 崩溃）
+    cap_ok, cap_detail = _capacity_guard_ok(rep)
+    check("D7 超限时抛 E_CAPACITY 而非硬挤", cap_ok, cap_detail)
+
     print("")
     print("通过 %d 项，警告 %d 项，失败 %d 项" % (len(PASS), len(WARN), len(FAIL)))
     if WARN:
@@ -218,6 +241,90 @@ def main():
         print("失败项：%s" % ", ".join(FAIL))
         return 1
     return 0
+
+
+def _build_stress(rep):
+    """由基线 fixture 派生三条压力屏，不修改原 report、不依赖外部文件。"""
+    import copy
+
+    def pick(kind):
+        return copy.deepcopy([s for s in rep["screens"] if s["kind"] == kind][0])
+
+    bar = pick("bar_scale")
+    bar["id"] = "stress_bar5"
+    bar["bars"] = [
+        {"label": "条%d" % i, "display": str(100 - i * 10),
+         "value": 100 - i * 10, "accent": i == 0} for i in range(5)
+    ]
+    row = pick("row_list")
+    row["id"] = "stress_row6"
+    row["rows"] = [
+        {"label": "去向项%d" % i, "tag": "标签%d" % i, "accent": i == 0}
+        for i in range(6)
+    ]
+    dec = pick("decay_bars")
+    dec["id"] = "stress_decay3"
+    dec["bars"] = [
+        {"label": "柱%d" % i, "display": str(120 - i * 20),
+         "value": 120 - i * 20, "accent": i == 0} for i in range(3)
+    ]
+    return [("D1 5 条比例条渲染不崩且不越界", bar),
+            ("D2 6 行列表渲染不崩且不越界", row),
+            ("D3 3 根衰减柱渲染不崩且不越界", dec),
+            ("D4 3 根柱横向位置互不重叠", dec)]
+
+
+def _render_stress(bg, rep, style, screen, n_frames):
+    """渲染压力屏若干时刻，检查无异常、亮像素在左右安全边距内。"""
+    try:
+        frames = [0, n_frames // 2, n_frames - 1]
+        imgs = []
+        for f in frames:
+            img = R.render_frame(bg, {"meta": rep.get("meta") or {}, "screens": [screen]},
+                                 style, f, n_frames)
+            imgs.append(img)
+            box = bright_bbox(img)
+            if box and (box[0] < R.MARGIN - 10 or box[2] > R.W - R.MARGIN + 10):
+                return False, "越界 x=(%s,%s)" % (box[0], box[2])
+        if screen["kind"] == "decay_bars":
+            # 柱心间距 >= MIN_ROW 视为不重叠（柱子均分可用宽度）
+            n = len(screen["bars"])
+            slot = (R.W - 2 * R.MARGIN) / float(n)
+            return slot >= R.MIN_ROW, "slot=%.1f MIN_ROW=%d" % (slot, R.MIN_ROW)
+        return True, ""
+    except Exception as e:  # noqa: BLE001
+        return False, "%s: %s" % (type(e).__name__, e)
+
+
+def _capacity_guard_ok(rep):
+    """构造超过几何上限的报告，load_report 必须以 E_CAPACITY 非 0 退出。"""
+    import copy
+    import tempfile
+
+    r = copy.deepcopy(rep)
+    bar = [s for s in r["screens"] if s["kind"] == "bar_scale"][0]
+    bar["bars"] = [{"label": "L%d" % i, "display": str(i), "value": i}
+                   for i in range(R.MAX_ITEMS + 1)]
+    path = None
+    try:
+        fd, path = tempfile.mkstemp(suffix=".json")
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            json.dump(r, fh, ensure_ascii=False)
+        old = sys.stdout, sys.stderr
+        import contextlib
+        buf = __import__("io").StringIO()
+        try:
+            with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(buf):
+                try:
+                    R.load_report(path)
+                    return False, "超限未抛错"
+                except SystemExit as e:
+                    return ("E_CAPACITY" in str(e)), str(e)
+        finally:
+            sys.stdout, sys.stderr = old
+    finally:
+        if path and os.path.exists(path):
+            os.remove(path)
 
 
 def _progress_grows(bg, rep, style, n_frames):

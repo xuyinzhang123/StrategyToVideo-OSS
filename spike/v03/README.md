@@ -15,7 +15,7 @@
 | `engine_next/render_story_v030.py` | 竖版渲染器（新增文件，约 900 行，Pillow + imageio-ffmpeg） |
 | `spike/v03/report.simulated.json` | 纯合成数据的 fixture，用于自检与回归基线 |
 | `spike/v03/storyboard.simulated.md` | 由 report 自动生成的分镜表（不手写） |
-| `spike/v03/accept_story_v030.py` | 24 项独立验收（结构 / 编码 / 版式） |
+| `spike/v03/accept_story_v030.py` | 31 项独立验收（结构 8 / 编码 8 / 版式 8 / 容量 7） |
 | `spike/v03/ACCEPTANCE.md` | 验收记录：跑分、回归证据、与参考样片的差异清单 |
 
 ## 怎么跑
