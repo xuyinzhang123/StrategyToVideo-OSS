@@ -19,8 +19,9 @@ output/*/02_backtest_macd/
 output/*/04_video/
 output/probe_*/
 
-# 真实行情数据出片产物（含真实 OHLC，不随包分发）
+# 真实行情数据出片产物（含真实 OHLC / 归一化数据点，不随包分发）
 output/*/01_data/
+output/*/01_input/
 output/_work_*/
 output/v03_story/
 
