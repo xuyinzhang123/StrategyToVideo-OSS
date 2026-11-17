@@ -19,6 +19,11 @@ output/*/02_backtest_macd/
 output/*/04_video/
 output/probe_*/
 
+# 真实行情数据出片产物（含真实 OHLC，不随包分发）
+output/*/01_data/
+output/_work_*/
+output/v03_story/
+
 # 系统文件
 .DS_Store
 Thumbs.db

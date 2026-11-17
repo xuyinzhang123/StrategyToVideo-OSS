@@ -6,8 +6,8 @@
 ## 0. 一句话结论
 
 已发布 V0.2（tag `v0.2.0`，main=`5884e0f`）；方向确认**专注股票策略可视化**，暂停其它视频形式。
-本主线已完成三件事：① 双数据接口（`pytdx` + `eastmoney`）打通到校验门禁；② **东方财富在工厂电脑已取到真实 260 日数据并通过 validateImport**（pytdx 仍 `CONTROL_OK_DATA_EMPTY`）；③ 策略卡契约 + 独立策略引擎 Draft（`macd_cross` 复现封版锚点、`close_buy_open_sell` 跑通）。
-注意：**真实数据尚未走完整出片**（导入→回测→V1.2.3→41 项）；策略引擎**尚未接网页**。二者是下一步，不得宣称已完成。
+本主线已完成四件事：① 双数据接口（`pytdx` + `eastmoney`）打通到校验门禁；② **东方财富在工厂电脑已取到真实 260 日数据并通过 validateImport**（pytdx 仍 `CONTROL_OK_DATA_EMPTY`）；③ 策略卡契约 + 独立策略引擎（`macd_cross` 复现封版锚点、`close_buy_open_sell` 的预热切分/金叉入场/9:25 跳空过滤已真正执行，26/26 自检）；④ **真实数据已走完整出片并通过 41/41 验收、两次独立出片 SHA 逐字节一致**（详见 §A3）。
+注意：策略引擎**尚未接网页**、渲染器**尚未改读 `backtest_result.json`**、新策略**尚无独立验收口径/出片**——这些是下一步，不得宣称已完成。
 
 ## 1. 分支与指针（以 GitHub 为准）
 
@@ -31,6 +31,24 @@
   通过 `validateImport`（仅 `W_NO_DIVIDENDS`），qfq 仍 `E_ADJUST_UNVERIFIED`。
 - 测试：`eastmoney_fetch.py --selftest` **20/20**；`verify_eastmoney_e2e.cjs` **8/8**（含真实产物门禁）。
 - pytdx 仍是 `CONTROL_OK_DATA_EMPTY`，两个接口并存、互不替换；既有四链 `git diff 5884e0f` 为空。
+
+### A3. 真实数据完整出片（2026-11-17 中午追加，里程碑）
+- **用东方财富真实 600000 未复权日线（260 日）走完整链路，通过 V1.2.3 全部 41/41 验收**。
+  这是"合成样例全绿"升级为"真实数据也成立"的实证，非合成、非造数。
+- 工具：`tools/render_real_600000.cjs`（新增，复用封版 `web/src/adapters/stockOhlc.cjs` 的 `execute()`，
+  不启网页、不重写任何转换/回测/渲染/验收逻辑；样板来自 `tools/check_determinism.cjs`）。
+  命令：`node tools/render_real_600000.cjs --run real_600000_A`（第二次换 `_B` 做对拍）。
+- 实测结果：
+  - 输入 CSV sha256 `382c9f72cf5d…`，260 bars、分红 0；警告 `W_NO_DIVIDENDS` + `W_CALENDAR_GAP`
+    （7 处假期缺口，CSV 无法区分停牌/休市/漏行，按连续交易日处理，如实标注）。
+  - 回测（2025-10-22 ~ 2026-11-16）：MACD 终值 **108,717.48** vs 持有 **80,296.97**；
+    金叉 6 / 死叉 6 / 11 笔；费用 580.52 / 红利税 0（无分红表）。
+  - 视频：1920×1080@30fps、1584 帧、52.8s；`accept_macd_video_v123.py` **PASS 41 / FAIL 0**；
+    溯源 260/260。
+  - **两次独立出片（real_600000_A / _B）MP4 逐字节一致**，SHA-256
+    `593fd21234e5916930a7a460ba45d5e2cc8515377a593990aa2f04be870ec54a`（系统 sha256sum 独立核验）。
+- 产物全部按 `.gitignore` 忽略（`datafeed/out/`、`output/*/01_data/`、`output/*/02_backtest_macd/`、
+  `output/*/04_video/`、`output/_work_*/`），真实行情数据不入库。
 
 ### A. 数据接口层 `datafeed/`（主线）
 - `datafeed/pytdx_fetch.py`：从 pytdx 拉未复权日线，生成 `stock_ohlc.csv` + `meta.json`。
@@ -57,7 +75,9 @@
 | 接口层产物喂 `validateImport` | `ok=true`，260 bars，警告仅 `W_NO_DIVIDENDS` |
 | `--probe-connection 115.238.90.165:7709`（pytdx） | `CONTROL_OK_DATA_EMPTY`：`securityCountSH=27881`，`bars600000=0` |
 | `node engine_next/tests/verify_strategy_engine.cjs` | **26/26**（锚点 7/7 + 新内核预热/金叉/跳空 8/8 + 门禁） |
-| `git diff 5884e0f -- engine_next/lib/ web/ tools/ docs/DATA_SPEC.md docs/samples/ ...` | 空（封版出片链零改动） |
+| `node tools/render_real_600000.cjs --run real_600000_A`（真实数据出片） | **PASS 41/41**，SHA `593fd212…` |
+| 第二次独立出片 `--run real_600000_B` | **PASS 41/41**，MP4 SHA 与 A 逐字节一致 |
+| `git diff 5884e0f -- engine_next/lib/ web/ tools/check_*.cjs docs/DATA_SPEC.md docs/samples/ ...` | 空（封版出片链零改动，新增工具不计） |
 
 数据状态按接口区分，不要混为一谈：
 - **东方财富接口已取得真实数据**：600000 未复权日线 260 交易日，通过 `validateImport`（见 §A2）。
@@ -80,8 +100,8 @@
 
 主线是"股票策略可视化"，建议顺序：
 
-1. **用已取到的东方财富真实数据走完整出片**：拿 600000 的 260 日未复权 CSV，走网页导入 → 回测 → V1.2.3 → 41 项验收。把"合成样例全绿"升级为"真实数据也成立"。这一步不需等家里网络（工厂已取到真数）。
-2. **Web 接入策略卡**：选模板 + 填参数 + 选区间 + 导入 CSV（复用 `validateImport`）。策略引擎本轮已把预热切分 / `macd_golden` 入场 / 9:25 跳空过滤真正执行（26/26 自检），接口就绪，待前端表单。
+1. ~~真实数据走完整出片~~ **已完成**（§A3：41/41 + 两次 SHA 一致）。不必重做。
+2. **Web 接入策略卡**：选模板 + 填参数 + 选区间 + 导入 CSV（复用 `validateImport`）。策略引擎已把预热切分 / `macd_golden` 入场 / 9:25 跳空过滤真正执行（26/26 自检），接口就绪，待前端表单。
 3. **渲染器改读 `backtest_result.json`**：先做 MACD 模板等价替换保持 41/41，再支持 `close_buy_open_sell` 独立验收。
 4. **超短线策略**：`close_buy_open_sell` 已具备首版内核（尾盘买/次日开盘卖 + 跳空情绪过滤），但**尚未独立验收、未出片、未接网页**，按新增策略单独定义口径，不塞进 MACD 41 项。若将来要用竞价量级数据，另立契约。
 
@@ -130,9 +150,9 @@ python datafeed/pytdx_fetch.py --live --code 600000 --name 浦发银行 --days 2
 
 ## 8. V0.2 合并 main / 正式发布还缺什么
 
-V0.2 **已发布**（tag `v0.2.0`）。本轮成果（数据接口层）若要进入正式版，缺的是：
-1. 数据接口层在真实行情下取数成功并出一条真实数据片（当前只到合成样例 + 门禁层）。
-2. 团队/用户评审是否接受"可选 pytdx 依赖 + 不自动生成分红表"这一边界。
+V0.2 **已发布**（tag `v0.2.0`）。本轮成果（数据接口层 + 策略引擎 + 真实数据出片）若要进入正式版，缺的是：
+1. ~~真实行情取数成功并出一条真实数据片~~ **已完成**（§A3）。
+2. 团队/用户评审是否接受"可选 pytdx/东方财富依赖 + 不自动生成分红表 + 新策略独立验收"这些边界。
 3. 如要合入 main，需要先开 PR 并评审——本轮不做。
 
 ## 9. 硬边界（继续遵守）
