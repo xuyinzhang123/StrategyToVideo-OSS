@@ -1,0 +1,80 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/xuyinzhang123/StrategyToVideo-OSS/blob/main/docs/schemas/strategy.schema.json",
+  "title": "StrategyToVideo strategy card",
+  "description": "策略卡契约 Draft 1，见 docs/STRATEGY_SPEC.md",
+  "type": "object",
+  "required": ["schemaVersion", "id", "symbol", "range", "data", "params"],
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": { "const": "1.0" },
+    "id": { "enum": ["macd_cross", "close_buy_open_sell"] },
+    "name": { "type": "string", "maxLength": 60 },
+    "symbol": { "type": "string", "pattern": "^[0-9]{6}$" },
+    "nameOfSecurity": { "type": "string", "maxLength": 60 },
+    "range": {
+      "type": "object",
+      "required": ["start", "end"],
+      "additionalProperties": false,
+      "properties": {
+        "start": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$" },
+        "end": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$" },
+        "warmupBars": { "type": "integer", "minimum": 0, "maximum": 2000 },
+        "warmupMode": { "const": "prepend" }
+      }
+    },
+    "data": {
+      "type": "object",
+      "required": ["adjust"],
+      "additionalProperties": false,
+      "properties": {
+        "adjust": { "const": "none" },
+        "dividendPolicy": { "enum": ["provided", "ignored"] },
+        "source": { "type": "string", "maxLength": 60 },
+        "sourceSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+      }
+    },
+    "params": {
+      "type": "object",
+      "description": "由 id 对应模板定义；此处只做类型约束，具体校验在引擎内按模板执行",
+      "properties": {
+        "fast": { "type": "integer", "minimum": 2 },
+        "slow": { "type": "integer", "minimum": 3 },
+        "signal": { "type": "integer", "minimum": 2 },
+        "entrySignal": { "enum": ["macd_golden"] },
+        "entryFill": { "enum": ["sameClose", "nextOpen"] },
+        "exitFill": { "enum": ["sameClose", "nextOpen"] },
+        "auctionFilter": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "basis": { "const": "open_gap_pct" },
+            "holdIfGte": { "type": "number" },
+            "else": { "const": "sellAtOpen" }
+          },
+          "required": ["basis", "else"]
+        }
+      }
+    },
+    "execution": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "entryFill": { "enum": ["sameClose", "nextOpen"] },
+        "exitFill": { "enum": ["sameClose", "nextOpen"] },
+        "sealedLimitBlocks": { "type": "boolean" },
+        "lotSize": { "type": "integer", "enum": [100] },
+        "initialCapital": { "type": "number", "minimum": 10000 }
+      }
+    },
+    "benchmark": { "const": "hold" },
+    "reproducibility": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "engineVersion": { "type": "string" },
+        "inputSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+      }
+    }
+  }
+}
