@@ -1,0 +1,63 @@
+{
+  "schemaVersion": "1.0",
+  "id": "close_buy_open_sell",
+  "name": "组合策略 · 金叉且突破 + 移动止损 600000",
+  "symbol": "600000",
+  "nameOfSecurity": "600000",
+  "range": {
+    "start": "2024-02-01",
+    "end": "2024-12-30",
+    "warmupBars": 30,
+    "warmupMode": "prepend"
+  },
+  "data": {
+    "adjust": "none",
+    "dividendPolicy": "ignored",
+    "source": "eastmoney-push2his"
+  },
+  "params": {
+    "composition": {
+      "schema": "stv.composition/0.1",
+      "entry": {
+        "type": "all",
+        "items": [
+          {
+            "type": "maCross",
+            "params": {
+              "fast": 5,
+              "slow": 20,
+              "maType": "SMA"
+            }
+          },
+          {
+            "type": "breakout",
+            "params": {
+              "lookback": 5
+            }
+          }
+        ]
+      },
+      "exits": [
+        {
+          "type": "trailingStop",
+          "params": {
+            "drawdown": 0.08
+          }
+        },
+        {
+          "type": "returnThreshold",
+          "params": {
+            "takeProfit": 0.2,
+            "stopLoss": null
+          }
+        }
+      ]
+    }
+  },
+  "execution": {
+    "initialCapital": 100000,
+    "lotSize": 100,
+    "sealedLimitBlocks": true
+  },
+  "benchmark": "hold"
+}

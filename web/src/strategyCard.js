@@ -107,15 +107,37 @@ function normalizeParams(templateId, raw) {
     const c = raw.composition;
     if (!isPlainObject(c)) return fail('E_PARAMS', 'composition 必须是对象');
     const entry = c.entry;
-    if (!isPlainObject(entry) || !['maCross', 'breakout'].includes(entry.type))
-      return fail('E_PARAMS', '入场条件只能是 maCross / breakout');
+    if (!isPlainObject(entry)) return fail('E_PARAMS', '缺少入场条件');
+    const ENTRY_ATOMS = ['maCross', 'breakout'];
+    let entryOut;
+    if (entry.type === 'all') {
+      const items = entry.items;
+      if (!Array.isArray(items) || items.length < 2 || items.length > 3)
+        return fail('E_PARAMS', '多条件入场 items 需为 2~3 个子条件');
+      const seenAtom = new Set();
+      for (const it of items) {
+        if (!isPlainObject(it) || !ENTRY_ATOMS.includes(it.type))
+          return fail('E_PARAMS', '入场子条件只能是 maCross / breakout');
+        if (seenAtom.has(it.type)) return fail('E_PARAMS', '入场子条件不可重复：' + it.type);
+        seenAtom.add(it.type);
+      }
+      entryOut = {
+        type: 'all',
+        items: items.map(it => ({ type: it.type, params: isPlainObject(it.params) ? it.params : {} }))
+      };
+    } else if (ENTRY_ATOMS.includes(entry.type)) {
+      entryOut = { type: entry.type, params: isPlainObject(entry.params) ? entry.params : {} };
+    } else {
+      return fail('E_PARAMS', '入场条件只能是 maCross / breakout，或多条件与 all');
+    }
     const exits = c.exits;
     if (!Array.isArray(exits) || exits.length < 1 || exits.length > 3)
       return fail('E_PARAMS', '退出条件需为 1~3 个');
+    const EXIT_ATOMS = ['maCross', 'fixedHolding', 'returnThreshold', 'trailingStop'];
     const exitTypes = new Set();
     for (const e of exits) {
-      if (!isPlainObject(e) || !['maCross', 'fixedHolding', 'returnThreshold'].includes(e.type))
-        return fail('E_PARAMS', '退出条件只能是 maCross / fixedHolding / returnThreshold');
+      if (!isPlainObject(e) || !EXIT_ATOMS.includes(e.type))
+        return fail('E_PARAMS', '退出条件只能是 maCross / fixedHolding / returnThreshold / trailingStop');
       if (exitTypes.has(e.type)) return fail('E_PARAMS', '退出条件不可重复：' + e.type);
       exitTypes.add(e.type);
     }
@@ -124,7 +146,7 @@ function normalizeParams(templateId, raw) {
       value: {
         composition: {
           schema: 'stv.composition/0.1',
-          entry: { type: entry.type, params: entry.params && isPlainObject(entry.params) ? entry.params : {} },
+          entry: entryOut,
           exits: exits.map(e => ({ type: e.type, params: e.params && isPlainObject(e.params) ? e.params : {} })),
         }
       }
@@ -245,11 +267,21 @@ function requiredWarmup(card) {
   let need = 1;
   if (card.id === 'macd_cross') need = 34;
   if (card.id === 'close_buy_open_sell') {
-    if (card.params && card.params.composition)
-      need = (card.params.composition.entry.type === 'breakout')
-        ? (card.params.composition.entry.params.lookback || 20) + 1
-        : (card.params.composition.entry.params.slow || 20) + 1;
-    else need = (card.params && card.params.entrySignal === 'macd_golden') ? 35 : 1;
+    const comp = card.params && card.params.composition;
+    if (comp) {
+      // 多条件与取各子条件的最大预热需求；单条件与旧口径一致。
+      const atoms = comp.entry.type === 'all' ? comp.entry.items : [comp.entry];
+      let needByAtoms = 1;
+      for (const a of atoms) {
+        const w = a.type === 'breakout'
+          ? (a.params.lookback || 20) + 1
+          : (a.params.slow || 20) + 1;
+        if (w > needByAtoms) needByAtoms = w;
+      }
+      need = needByAtoms;
+    } else {
+      need = (card.params && card.params.entrySignal === 'macd_golden') ? 35 : 1;
+    }
   }
   return Math.max(need, Math.min(explicit || DEFAULT_WARMUP, MAX_WARMUP));
 }
