@@ -21,6 +21,7 @@ const MAX_BODY_BYTES = 5 * 1024 * 1024; // 5 MiB
 // 可执行策略（接口自述口径）。V0.2 起股票通道门禁已通过并实装：
 //   macd（V0.1 演示，SIMULATED）+ timeseries / cross_section（A/B 用户 CSV）
 //   + stock_ohlc（C 类用户 CSV → MACD 回测 → V1.2.3 验收交付）
+//   + strategy_card（代码 + 区间 + 模板 → 自动取数 → 统一回测 → 通用策略片）
 // 只保留单一真相源 STRATEGY_MODES，executableStrategies / strategies / strategyModes
 // 三处都从它派生，避免「前端可执行、health 却宣称不可执行」的口径漂移。
 const STRATEGY_MODES = {
@@ -28,6 +29,7 @@ const STRATEGY_MODES = {
   timeseries: 'executable',
   cross_section: 'executable',
   stock_ohlc: 'executable',
+  strategy_card: 'executable',
 };
 const EXECUTABLE_STRATEGIES = Object.keys(STRATEGY_MODES);
 

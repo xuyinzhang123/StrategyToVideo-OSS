@@ -258,6 +258,64 @@ function createTask(normalized) {
     return { taskId, status };
   }
 
+  // 策略卡通道（自动取数）：没有用户 CSV，只有一张已装配好的策略卡。
+  // 分红表（可选）仍按原始字节留档为 dividend.csv，语义与 C 类一致：可复核、不篡改。
+  // 原始行情 CSV 不在此处生成——执行阶段取数成功后才写入 source.csv。
+  if (normalized.card) {
+    const card = normalized.card;
+    let dividend = null;
+    const divText = typeof normalized.dividendSourceText === 'string' ? normalized.dividendSourceText : '';
+    if (divText) {
+      const divBuf = Buffer.from(divText, 'utf8');
+      const divSha = crypto.createHash('sha256').update(divBuf).digest('hex');
+      fs.writeFileSync(path.join(dir, 'dividend.csv'), divBuf);
+      dividend = {
+        fileName: 'dividend.csv', archivedAs: 'dividend.csv',
+        sha256: divSha, bytes: divBuf.length,
+        lines: countTextLines(divText),
+        dataLines: countDataRecords(divText),
+      };
+    }
+
+    const request = {
+      taskId,
+      strategy: 'strategy_card',
+      templateId: normalized.templateId,
+      templateName: normalized.templateName,
+      title: normalized.title,
+      startDate: normalized.startDate,
+      endDate: normalized.endDate,
+      initialCapital: normalized.initialCapital,
+      card,
+      dividend,
+      mode: 'plan-only',
+    };
+    const status = {
+      taskId,
+      strategy: 'strategy_card',
+      templateId: normalized.templateId,
+      templateName: normalized.templateName,
+      title: normalized.title,
+      symbol: card.symbol,
+      name: card.nameOfSecurity,
+      startDate: normalized.startDate,
+      endDate: normalized.endDate,
+      initialCapital: normalized.initialCapital,
+      dividend,
+      status: 'queued',
+      mode: 'plan-only',
+      createdAt: now,
+      updatedAt: now,
+      note: '任务已创建（计划态），请点击「确认并生成视频」显式执行；执行时会自动取数。',
+      result: null,
+      error: null,
+    };
+    atomicWriteJson(path.join(dir, 'request.json'), request);
+    atomicWriteJson(path.join(dir, 'card.json'), card);
+    atomicWriteJson(path.join(dir, 'status.json'), status);
+    return { taskId, status };
+  }
+
   const request = {
     taskId,
     strategy: normalized.strategy,

@@ -11,6 +11,7 @@
 //   macd         → adapters/macd.cjs（阶段 4A 新增，离线可复现）
 //   dividend_etf → adapters/dividendEtf.cjs（阶段 4B 新增，A 级离线归档 + 独立验收）
 //   stock_ohlc   → adapters/stockOhlc.cjs（V0.2 新增，用户股票 CSV → MACD → V1.2.3，USER_IMPORT 标注）
+//   strategy_card→ adapters/strategyCard.cjs（策略卡：代码+区间+模板 → 自动取数 → 统一回测 → 通用策略片）
 // 阶段 4B 起三条策略均已接入，E_STRATEGY_UNSUPPORTED 仅用于未知策略。
 //
 // 约束：
@@ -32,6 +33,7 @@ const macd = require('./adapters/macd.cjs');
 const dividendEtf = require('./adapters/dividendEtf.cjs');
 const genericChart = require('./adapters/genericChart.cjs');
 const stockOhlc = require('./adapters/stockOhlc.cjs');
+const strategyCard = require('./adapters/strategyCard.cjs');
 
 const RUNS_DIR = path.join(PROJECT_ROOT, 'agent', 'runs');
 const OUTPUT_DIR = path.join(PROJECT_ROOT, 'output');
@@ -48,6 +50,8 @@ const ADAPTERS = {
   timeseries: genericChart.timeseries,
   cross_section: genericChart.cross_section,
   stock_ohlc: stockOhlc,
+  // V0.2+ 策略卡：代码 + 区间 + 模板 → 自动取数 → 统一回测 → 通用策略片
+  strategy_card: strategyCard,
 };
 
 // 并发上限 1：当前正在执行的任务 id（同步守卫）
@@ -67,7 +71,9 @@ function buildRequestFile(taskId, request) {
   return ratioBand.buildRequestFile(taskId, request);
 }
 
-// 通用子进程执行：参数数组、无 shell、日志落盘、输出收集
+// 通用子进程执行：参数数组、无 shell、日志落盘、输出收集。
+// stdout 收进 out（既有适配器用它解析摘要 / 验收结果），stderr 同时收进 err，
+// 便于新通道在失败时把 Python 的真实报错带回给用户（以前只写日志、消息为空）。
 function runCommand(cmd, args, log) {
   return new Promise((resolve, reject) => {
     const child = spawnImpl(cmd, args, {
@@ -75,10 +81,11 @@ function runCommand(cmd, args, log) {
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     let out = '';
+    let err = '';
     child.stdout.on('data', (d) => { out += d; if (log) log.write(d); });
-    child.stderr.on('data', (d) => { if (log) log.write(d); });
+    child.stderr.on('data', (d) => { err += d; if (log) log.write(d); });
     child.on('error', (e) => reject({ code: 'E_SPAWN_FAILED', message: e.message }));
-    child.on('close', (code) => resolve({ code, out }));
+    child.on('close', (code) => resolve({ code, out, err }));
   });
 }
 
@@ -102,7 +109,7 @@ function tryBeginExecute(taskId) {
   }
   const adapter = ADAPTERS[status.strategy];
   if (!adapter) {
-    return { ok: false, code: 'E_STRATEGY_UNSUPPORTED', message: '该数据类别尚未接入执行链路（当前可执行：ratio_band / macd / dividend_etf / timeseries / cross_section / stock_ohlc）' };
+    return { ok: false, code: 'E_STRATEGY_UNSUPPORTED', message: '该数据类别尚未接入执行链路（当前可执行：ratio_band / macd / dividend_etf / timeseries / cross_section / stock_ohlc / strategy_card）' };
   }
   // 先检查本任务自身状态（精确语义），再做全局并发守卫
   if (status.status === 'running') {
