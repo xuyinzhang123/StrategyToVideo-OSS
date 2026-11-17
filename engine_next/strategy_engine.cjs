@@ -25,6 +25,8 @@ const { buildSchedule, r2 } = require('./lib/stock_cost.cjs');
 const { buildTimeline, runHoldStock } = require('./lib/stock_core.cjs');
 const { runMacdStock } = require('./lib/stock_macd_core.cjs');
 const { runStrategyRunner } = require('./strategy_runner.cjs');
+const { runComposedRunner } = require('./strategy_runner_composed.cjs');
+const { buildConditions } = require('./strategy_conditions.cjs');
 const { assertSupportedSymbol, assertSupportedActions, UnsupportedError } = require('./lib/support_guard.cjs');
 
 const ENGINE_VERSION = '0.1.0';
@@ -42,6 +44,16 @@ function validateCard(card) {
   if (!card || typeof card !== 'object') fail('E_CARD', '策略卡必须是对象');
   if (card.schemaVersion !== SCHEMA_VERSION) fail('E_SCHEMA_VERSION', `schemaVersion 必须为 ${SCHEMA_VERSION}`);
   if (!['macd_cross', 'close_buy_open_sell'].includes(card.id)) fail('E_STRATEGY_UNKNOWN', `未知策略 id：${card.id}`);
+  // 组合模式是 close_buy_open_sell 的可选增强：不填 composition 时旧卡校验路径完全不变。
+  if (card.params && card.params.composition !== undefined) {
+    if (card.id !== 'close_buy_open_sell') fail('E_COMPOSITION_ID', 'composition 只能用于 close_buy_open_sell');
+    try {
+      const dummy = Array.from({ length: 40 }, (_, i) => ({
+        date: '2020-01-' + String(i + 1).padStart(2, '0'), close: 10, high: 11
+      }));
+      buildConditions(dummy, card.params.composition);
+    } catch (e) { fail(e.code || 'E_COMPOSITION', e.message); }
+  }
   if (!/^[0-9]{6}$/.test(String(card.symbol || ''))) fail('E_SYMBOL', 'symbol 必须是 6 位代码');
   if (!card.range || !/^\d{4}-\d{2}-\d{2}$/.test(card.range.start || '') || !/^\d{4}-\d{2}-\d{2}$/.test(card.range.end || ''))
     fail('E_RANGE', 'range.start / range.end 必须是 YYYY-MM-DD');
@@ -221,10 +233,20 @@ function runStrategy(card, input, cfg) {
   });
 
   let raw;
+  const composition = card.params && card.params.composition;
   if (card.id === 'macd_cross') {
     const p = card.params || {};
     raw = runMacdStock(days, Object.assign({}, baseOpts, {
       macd: { fast: p.fast || 12, slow: p.slow || 26, signal: p.signal || 9 }
+    }));
+  } else if (composition) {
+    // V0.3 组合模式：独立受控副本，旧 runner 一行不改。
+    const p = card.params || {};
+    const probe = buildConditions([], composition); // 只为 warmupRequired，不产生信号
+    raw = runComposedRunner(days, Object.assign({}, baseOpts, {
+      tradeFrom: card.range.start,
+      composition,
+      warmupRequired: probe.warmupRequired
     }));
   } else {
     // close_buy_open_sell：走独立 runner（预热切分 / 入场信号 / 9:25 跳空过滤）。
@@ -241,7 +263,7 @@ function runStrategy(card, input, cfg) {
   const summary = raw.summary;
   const warnings = [];
   if (card.data.dividendPolicy !== 'provided') warnings.push('W_NO_DIVIDENDS');
-  if (card.id === 'close_buy_open_sell')
+  if (card.id === 'close_buy_open_sell' && !composition)
     warnings.push('W_STRATEGY_INDEPENDENT: 本策略为新增模板，独立验收，不套用 MACD 41 项');
 
   const state = {
@@ -252,7 +274,18 @@ function runStrategy(card, input, cfg) {
     readyFrom: tpl.readyFrom,
     warnings
   };
-  if (card.id === 'close_buy_open_sell') {
+  if (composition) {
+    // 组合专属：字段只在此模式出现，旧卡结果一个字节都不变。
+    state.compositionMode = true;
+    state.fillAssumption = { entry: 'nextOpen', exit: 'nextOpen' };
+    state.composition = raw.composition || null;
+    state.warmupExec = {
+      mode: 'prepend-no-trade',
+      displayTradableDays: summary.displayTradableDays,
+      warmupTradableDays: summary.warmupTradableDays
+    };
+    warnings.push('W_STRATEGY_COMPOSITION: 本策略由可组合组件生成，独立验收');
+  } else if (card.id === 'close_buy_open_sell') {
     const p = card.params || {};
     state.fillAssumption = { entry: 'sameClose', exit: 'nextOpen' };
     state.entrySignal = p.entrySignal || 'always';
@@ -285,8 +318,23 @@ function runStrategy(card, input, cfg) {
     strategy: JSON.parse(JSON.stringify(card)),
     state,
     market,
-    signals: normalizeSignals(raw, tpl),
-    trades: normalizeTrades(raw),
+    signals: composition
+      ? (raw.signals || []).map(s => ({
+          date: s.signalDate || s.date,
+          type: s.type,
+          component: s.component || null,
+          reason: s.reason || null,
+          indicators: (s.dif !== undefined) ? { dif: s.dif, dea: s.dea, hist: s.hist } : undefined,
+          execDate: s.execDate, execPrice: s.execPrice,
+          executed: !!s.executed, blocked: !!s.blocked,
+          note: s.note || ''
+        }))
+      : normalizeSignals(raw, tpl),
+    trades: composition
+      ? (raw.trades || []).map((t, i) => Object.assign(normalizeTrades({ trades: [t] })[0], {
+          signalReasons: t.signalReasons || null
+        }))
+      : normalizeTrades(raw),
     // equity 只保留展示区间：预热段只用于把指标热好，不应出现在视频/结果资产曲线里。
     // 这样 market 与 equity 才能逐日对齐，渲染器无需再猜“哪一段是预热”。
     equity: normalizeEquity(
@@ -307,7 +355,14 @@ function runStrategy(card, input, cfg) {
       totalDividendTax: summary.totalDividendTax,
       feeBreakdown: summary.feeBreakdown,
       benchmark: { id: 'hold', final: hold.summary.final },
-      ...(card.id === 'close_buy_open_sell' ? {
+      ...(composition ? {
+        composition: {
+          config: raw.composition || null,
+          reasonCounts: summary.compositionCounts || {},
+          warmupRequired: (summary.compositionSummary || {}).warmupRequired || 0
+        }
+      } : {}),
+      ...(card.id === 'close_buy_open_sell' && !composition ? {
         entrySignal: summary.entrySignal,
         auction: {
           enabled: !!summary.auctionFilter,
