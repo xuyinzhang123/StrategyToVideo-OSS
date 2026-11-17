@@ -400,3 +400,125 @@ V0.3 由"开发中"改为已发布；补组合组件、安装第 8 步、策略�
 **跨机视频 SHA 说明**：旧模板卡的本机现场出片视频 SHA/字节数与历史文档记录不同（网页 `0781c5b0…` vs 文档 `1db24925…`；
 CLI `6b49eda0…` vs 文档 `22b17052…`），但 resultSha256 与全部验收项一致、本机两次出片逐字节一致，
 组合卡视频 SHA 亦与历史一致——属编码字节/环境的跨机差异，不影响回测结果与验收，非 P0/P1。
+
+---
+
+## A11. V0.4 阶段 A：自然语言翻译层（分支 `feat/v0.4-nl-layer`，未合并）
+
+**范围**：只做「中文 → 策略卡参数」的翻译层契约与离线解析器；**不改引擎、不改验收体系、不接任何 LLM**。
+配套设计文档：`docs/dev/V04_NL_TRANSLATION_DESIGN.md`。
+
+**新增文件（三个，均为纯函数，零第三方依赖）**
+
+- `engine_next/strategy_nl.cjs`：受控词表匹配 + 路由 + `stv.nl-draft/0.1` 产物 + `describeDraft()` 规则串。
+- `engine_next/tests/verify_nl_parser.cjs`：24 项验收。
+- `docs/dev/V04_NL_TRANSLATION_DESIGN.md`：契约与阶段划分。
+- `package.json` 增加 `check:nl` 脚本；其余文件零改动。
+
+**三道门禁（顺序不可交换）**：受控词表 → `normalizeParams`（既有前端白名单，原样调用）→
+`buildConditions`（既有引擎参数校验，传空行情数组只跑参数段，原样调用）。翻译层不复刻校验逻辑，
+保证「翻译层能过的，引擎一定也能过」。
+
+**两条不可让渡的规则**：参数可填默认值但必须列进 `defaults` 并在确认页展示；
+条件不可补全——没说出场就报 `E_NO_EXIT`，只提止盈就不补止损（`stopLoss=null`），
+没指明标的就报 `E_AMBIGUOUS_ROUTE`（均线金叉 vs MACD 金叉语义不同）。
+
+**本轮实测发现（重要，供阶段 B 参考）**：`normalizeParams('close_buy_open_sell', …)` 会补
+`entryFill` / `exitFill`，而 `buildCard` 不接受这两个键（它按模板自己补）——即该函数对老模板
+**不幂等**。因此 `params`（卡片最终参数）与 `cardRequest.params`（重建卡片的最小请求参数）
+在老模板上必须不同；最初把 `params` 原样喂回 `buildCard` 时验收第 19/20 项直接失败，
+已按此修正并写进设计文档。`composition` / `macd_cross` 两个模板两者同一份对象。
+
+**验收**：`node engine_next/tests/verify_nl_parser.cjs` → **24/24**。
+其中第 19/20 项不是结构断言，而是把每条可执行产物真的经 `buildCard` 组装成卡、再 `runStrategy`
+跑完回测并校验逐日资产恒等式；第 21 项反向验证非白名单组件在 `normalizeParams` / `buildCard` /
+`buildConditions` 三处均被拒绝。
+
+**回归（本机，2026-11-17）**：引擎 27/27、组合 10/10、策略卡接口 36/36、`check:api` 6/6、
+`check:samples` 30/30；`git diff main` 对 `strategy_conditions.cjs`、`strategy_runner_composed.cjs`、
+`strategy_engine.cjs`、v122/v123 渲染器、`accept_strategy_video.py`、`docs/DATA_SPEC.md` 全为空。
+
+**未做（阶段 B/C）**：网页确认界面、LLM 适配器、把翻译结果接入 `buildCard` 的实际请求链。
+
+---
+
+## A12. V0.4 阶段 B：网页确认界面（分支 `feat/v0.4-nl-layer`，未合并）
+
+**范围**：把阶段 A 的解析器接到本机网页，让用户能看见规则、能改参数、必须显式确认。
+仍然**不接任何 LLM、不联网取数、不改引擎与验收体系**。
+
+**新增/改动**
+
+- `web/src/nlPreview.js`（新增）：`previewNl({text, overrides})`，纯函数，无副作用。
+  用户改参后**重走同一套门禁**（`normalizeParams` → `buildConditions`），并用同一份结构化字段
+  重新生成 `ruleText`，保证「界面显示的规则」与「最终提交的 params」同源。
+- `web/server.js`：新增 `POST /api/nl/preview`（同源校验 + 请求体上限复用既有 readJsonBody）。
+  解析不通过不是服务器错误，统一 `200 + ok:false`，前端按 `issues` 展示。
+- `web/public/app.js`：策略卡表单顶部新增「用一句话描述策略」区块（textarea / 解析 / 确认并填入 /
+  参数编辑 / 默认值勾选）。确认后 `nlState.confirmed` 固化 params，`buildCardRequest` 优先使用它；
+  文本、模板、入场/退出条件的任何手工改动都会调用 `invalidateNl()` 作废确认状态。
+- `web/public/styles.css`：`.nl-*` 样式。
+- `tools/check_nl_preview.cjs`（新增）+ `package.json` 的 `check:nl-preview`。
+
+**只允许改数值参数**：`fast / slow / lookback / days / takeProfit / stopLoss / holdIfGte`。
+不允许借改参新增或删除条件——没有「固定持有」就改天数、没有「止盈止损」就改止盈，
+一律 `E_OVERRIDE_NO_TARGET`；MACD 模板改参一律 `E_OVERRIDE_LOCKED`。
+唯一的例外是 `stopLoss` 从 `null` 改成数值：那是用户显式补的，界面上会立刻反映在规则串里并需重新确认。
+
+**验收**
+
+- `node tools/check_nl_preview.cjs` → **13/13**。
+- UI 用无头 Edge（`--headless=new --dump-dom`）真实点过两遍完整流程，未留测试钩子：
+  1. 选策略卡 → 输入描述 → 解析 → 规则串与 5 个参数框渲染 → 确认后模板切到 `composition`、状态显示已确认；
+  2. 「均线金叉」这类未给周期的输入 → `apply` 在勾选「我已核对默认值」前保持禁用；
+     勾选后可确认；把快线改成 10 → 规则串同步变成 `MA10 上穿 MA20`；
+     再改成 fast=10/slow=8 → 界面报 `E_MA_PARAMS` 且确认按钮重新禁用。
+- 端到端缝隙验证：把 `previewNl` 产出的 `cardRequest.params` 直接 POST `/api/tasks`，
+  服务端接受并创建任务（`queued`，仍是「创建 → 人工确认执行」两步），验证后已删除该任务。
+
+**回归（本机，2026-11-17 22:xx）**：引擎 27/27、组合 10/10、翻译层 24/24、确认层 13/13、
+策略卡接口 36/36、`check:api` 6/6。
+
+**已知限制（阶段 C 再处理）**
+
+- 只允许改数值，不允许在确认页增删条件；要换条件得改描述重新解析。
+- 一次只解析一句策略，不做多轮对话式澄清。
+- 网页端仍只服务 `127.0.0.1`，未公开部署。
+
+---
+
+## A13. V0.3.0 → V0.4.0 发布收口（2026-11-17）
+
+**范围**：把阶段 A（离线解析器）+ 阶段 B（网页确认界面）合并进 main 并发布 v0.4.0。
+**只发布既有实现，不新增功能**；引擎、组合 runner、渲染器、验收脚本、`docs/DATA_SPEC.md`、`samples/` 相对 main **零改动**。
+
+**发布前实测（本机 2026-11-17 22:14）**
+
+| 项 | 结果 |
+| --- | --- |
+| 策略引擎契约 | 27/27 |
+| 组合组件 | 10/10 |
+| 自然语言解析器 | 24/24 |
+| 确认层 | 13/13 |
+| 策略卡接口 | 36/36 |
+| `check:api` | 6/6 |
+| `check:samples` | 30/30 |
+| `e2e:card` 网页全链路 | PASS（20/20 验收 + 815/815 溯源） |
+
+联网取数（e2e）：东方财富未复权日线，取数 **2023-07-06 → 2026-11-17（815 根）**，
+展示区间 **2024-01-02 → 2026-11-16（694 日）**；46 笔、期末 96,652.73、收益 -3.35%、回撤 3.35%；
+`resultSha256=5df18d704…` 与 V0.3.0 锚点一致；视频 1920×1080@30、720 帧、706,088 字节、
+SHA `0781c5b098ca5fa6…`（与 V0.3.0 发布时同机实测一致）。前端改动未影响原策略卡通道。
+
+**对外描述修正（发布门禁）**
+
+- 版本状态、Roadmap、能力边界、安装第 9 步、验收入口：把「自然语言只在开发分支、未发布」
+  改为 **v0.4.0 已发布**，并同时写明它是**受限词表、完全离线、不接 LLM**，不是通用策略理解。
+- `package.json`：`0.3.0` → `0.4.0`；新增 `check:composition` 脚本（对应既有 10 项验收，之前只有文件没挂 npm 脚本）。
+
+**不变的两条红线（V0.4 依然遵守）**
+
+1. 解析/确认只产出参数，**回测仍由确定性代码执行**，翻译层拿不到行情、不能调 `runStrategy`。
+2. **条件不可补全**：缺退出报 `E_NO_EXIT`，只提止盈不补止损，路由不明报 `E_AMBIGUOUS_ROUTE`。
+
+**未做（阶段 C 及以后）**：LLM 适配器、多轮澄清、确认页增删条件、公开部署。

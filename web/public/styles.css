@@ -341,3 +341,47 @@ body {
 .trace-table td:last-child { font-family: Consolas, "Courier New", monospace; color: var(--muted); word-break: break-all; }
 .trace-foot { margin: 8px 0 0; font-size: 12px; color: var(--muted); }
 .trace-foot a { color: var(--brand); }
+
+/* ---- V0.4 阶段 B：自然语言策略草案 ---- */
+.nl-box {
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: #fafbff;
+}
+.nl-tag {
+  font-size: 10px;
+  font-weight: 400;
+  color: var(--muted);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 1px 6px;
+  margin-left: 6px;
+  vertical-align: middle;
+}
+.nl-box textarea {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  font: inherit;
+  line-height: 1.6;
+  resize: vertical;
+}
+.nl-actions { display: flex; gap: 8px; margin: 8px 0 4px; }
+.nl-status { font-size: 12px; margin-top: 6px; line-height: 1.5; }
+.nl-status.ok { color: var(--ok); }
+.nl-status.warn { color: var(--bad); }
+.nl-rule { margin-top: 6px; line-height: 1.7; }
+.nl-list { margin: 6px 0 0 18px; padding: 0; }
+.nl-list li { margin: 2px 0; line-height: 1.6; }
+.nl-defaults { margin-top: 8px; font-size: 12px; }
+.nl-defaults code { background: #eef2f9; padding: 0 4px; border-radius: 3px; }
+.nl-editor { margin-top: 10px; }
+.nl-editor-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 10px;
+  margin-top: 6px;
+}

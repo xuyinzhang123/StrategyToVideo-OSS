@@ -12,6 +12,7 @@ const {
   deleteTask, readTaskFile,
 } = require('./src/taskManager');
 const engineBridge = require('./src/engineBridge');
+const { previewNl } = require('./src/nlPreview');
 
 // 请求体上限。
 // V0.2 起用户 CSV 随 JSON 一起提交（浏览器 FileReader → csvText），需留出转义余量：
@@ -161,6 +162,9 @@ function handler(req, res) {
     res.end(JSON.stringify(info, null, 2));
     return;
   }
+  if (req.method === 'POST' && pathname === '/api/nl/preview') {
+    return handleNlPreview(req, res);
+  }
   if (req.method === 'POST' && pathname === '/api/tasks') {
     return handleCreateTask(req, res);
   }
@@ -280,6 +284,20 @@ function readJsonBody(req, res, cb, opts) {
   });
   req.on('error', () => {
     if (!aborted) sendJson(res, 400, { ok: false, code: 'E_JSON_INVALID', message: '请求读取失败' });
+  });
+}
+
+// 自然语言 → 策略卡草案（V0.4 阶段 B）。
+// 纯预览端点：不建任务、不取数、不落库、不联网；用户改参后回到这里重走同一套门禁，
+// 保证「界面展示的规则串」与「最终提交的参数」同源。
+// 解析不通过不是服务器错误，因此统一 200 + ok:false，前端按 issues 展示。
+function handleNlPreview(req, res) {
+  if (isCrossOrigin(req)) {
+    return sendJson(res, 403, { ok: false, code: 'E_CROSS_ORIGIN', message: '拒绝跨站请求' });
+  }
+  readJsonBody(req, res, (body) => {
+    const draft = previewNl(body);
+    return sendJson(res, 200, { ok: !!draft.ok, draft });
   });
 }
 
