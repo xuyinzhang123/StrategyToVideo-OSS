@@ -264,13 +264,35 @@ function runStrategy(card, input, cfg) {
     };
   }
 
+  // 展示区间行情：渲染器只读本结果即可画价格与买卖点，不需要再碰原始 CSV。
+  // 只保留展示区间，预热段不进入视频；不参与任何回测计算。
+  const market = prepared.bars
+    .filter(b => b.date >= card.range.start && b.date <= card.range.end)
+    .map(b => {
+      const row = {
+        date: b.date,
+        open: Number(b.open),
+        high: Number(b.high),
+        low: Number(b.low),
+        close: Number(b.close)
+      };
+      if (b.volume !== undefined && b.volume !== null) row.volume = Number(b.volume);
+      return row;
+    });
+
   const result = {
     schemaVersion: SCHEMA_VERSION,
     strategy: JSON.parse(JSON.stringify(card)),
     state,
+    market,
     signals: normalizeSignals(raw, tpl),
     trades: normalizeTrades(raw),
-    equity: normalizeEquity(raw.daily, baseOpts.initialCapital),
+    // equity 只保留展示区间：预热段只用于把指标热好，不应出现在视频/结果资产曲线里。
+    // 这样 market 与 equity 才能逐日对齐，渲染器无需再猜“哪一段是预热”。
+    equity: normalizeEquity(
+      (raw.daily || []).filter(d => d.date >= card.range.start && d.date <= card.range.end),
+      baseOpts.initialCapital
+    ),
     decisions: (card.id === 'close_buy_open_sell' && Array.isArray(raw.decisions) && raw.decisions.length)
       ? raw.decisions.map(d => Object.assign({}, d)) : normalizeDecisions(raw, card, tpl),
     metrics: {

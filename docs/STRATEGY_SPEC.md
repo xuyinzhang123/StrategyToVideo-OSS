@@ -147,6 +147,9 @@ V0.2 已经能把「一份合规股票 CSV」变成一条可验收的 MACD 回�
     "start": "2024-01-02", "end": "2024-12-30", "bars": 260,
     "warmupBars": 60, "readyFrom": 33, "warnings": []
   },
+  "market": [
+    { "date": "2024-01-02", "open": 8.10, "high": 8.20, "low": 8.02, "close": 8.15, "volume": 120000 }
+  ],
   "signals": [
     { "date": "2024-03-05", "type": "GOLDEN", "indicators": { "dif": 0.12, "dea": 0.09, "hist": 0.03 },
       "execDate": "2024-03-06", "execPrice": 8.42, "executed": true, "blocked": false, "note": "" }
@@ -180,6 +183,11 @@ V0.2 已经能把「一份合规股票 CSV」变成一条可验收的 MACD 回�
 `runMacdStock().signals / .trades / .daily`（其中 `daily.asset` 即 `equity.asset`，
 `daily.mark` 即收盘估值）；`metrics` 来自内核 `summary`；`decisions` 是策略卡新增的
 “为什么这么做”的说明层，用于视频旁白与审计。
+
+`market` 是展示区间的行情副本（`date/open/high/low/close`，可选 `volume`），只为渲染器
+画价格与买卖点提供数据，**不参与回测计算**，也不改变任何资金/费用口径。加入它是为了兑现
+“渲染器只读 `backtest_result.json`”这条约束：渲染阶段不再回头读原始 CSV 或重新取数。
+它必须与 `equity` 的日期逐日对齐，且只覆盖 `range.start ~ range.end`（预热段不入片）。
 
 ## 4. 复现与版本
 

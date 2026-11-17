@@ -86,6 +86,11 @@ python datafeed/eastmoney_fetch.py --probe-connection --code 600000
 python datafeed/eastmoney_fetch.py --live \
     --code 600000 --name 浦发银行 --days 260 --out datafeed/out/em_600000
 
+# 3b) 指定区间取数（策略卡直出片/网页任务用；给区间后不再按 --days 截取）
+python datafeed/eastmoney_fetch.py --live \
+    --code 600000 --name 浦发银行 --start 2023-07-01 --end 2024-12-30 \
+    --out datafeed/out/range_600000
+
 # 4) 端到端验证（合成 5 项 + 若真实产物存在再 3 项）
 node datafeed/tests/verify_eastmoney_e2e.cjs
 ```

@@ -6,8 +6,8 @@
 ## 0. 一句话结论
 
 已发布 V0.2（tag `v0.2.0`，main=`5884e0f`）；方向确认**专注股票策略可视化**，暂停其它视频形式。
-本主线已完成五件事：① 双数据接口（`pytdx` + `eastmoney`）打通到校验门禁；② **东方财富在工厂电脑已取到真实 260 日数据并通过 validateImport**（pytdx 仍 `CONTROL_OK_DATA_EMPTY`）；③ 策略卡契约 + 独立策略引擎（`macd_cross` 复现封版锚点、`close_buy_open_sell` 的预热切分/金叉入场/9:25 跳空过滤已真正执行，26/26 自检）；④ **真实数据已走完整出片并通过 41/41 验收、两次独立出片 SHA 逐字节一致**（详见 §A3）；⑤ **主图 Y 轴自适应渲染档 V1.2.4 已作为默认出片版本接入**，解决"下半屏很空"，三条数据各 41/41、端到端两次 SHA 一致（详见 §A4）；⑥ **A 类多序列对比片已跑通**：黄金 vs 黄金股ETF 真实归一化双序列出 24s 对比片、两次 SHA 一致（详见 §A5）。
-注意：策略引擎**尚未接网页**、渲染器**尚未改读 `backtest_result.json`**、新策略**尚无独立验收口径/出片**——这些是下一步，不得宣称已完成。
+本主线已完成七件事：① 双数据接口（`pytdx` + `eastmoney`）打通到校验门禁；② **东方财富在工厂电脑已取到真实 260 日数据并通过 validateImport**（pytdx 仍 `CONTROL_OK_DATA_EMPTY`）；③ 策略卡契约 + 独立策略引擎（`macd_cross` 复现封版锚点、`close_buy_open_sell` 的预热切分/金叉入场/9:25 跳空过滤已真正执行，27/27 自检）；④ **真实数据已走完整出片并通过 41/41 验收、两次独立出片 SHA 逐字节一致**（详见 §A3）；⑤ **主图 Y 轴自适应渲染档 V1.2.4 已作为默认出片版本接入**，解决"下半屏很空"，三条数据各 41/41、端到端两次 SHA 一致（详见 §A4）；⑥ **A 类多序列对比片已跑通**：黄金 vs 黄金股ETF 真实归一化双序列出 24s 对比片、两次 SHA 一致（详见 §A5）；⑦ **策略卡直出片垂直切片已跑通**：策略卡 → 自动取数 → 统一回测 → 通用策略视频，真实 600000 两次独立出片 SHA 一致（详见 §A6）。
+注意：策略链路**仍未接网页**；新策略**尚无网页表单与公开部署**；通用策略渲染器已能读 `backtest_result.json`，但只做了首版视觉验收，尚未替代 MACD 的 41 项像素级验收。这些是下一步，不得宣称已完成。
 
 ## 1. 分支与指针（以 GitHub 为准）
 
@@ -91,6 +91,29 @@
   `tools/render_gold_compare.cjs` 新增 `--note` 以传入来源说明，默认文案不变；两次独立出片 SHA 一致
   `0f1e1e7941765d9…`（产出在 `output/gold_vs_shandong_A|B/`，gitignore 不入库）。
 
+### A6. 策略卡直出片垂直切片（2026-11-17 下午追加）
+- **目标**：验证最终产品的最短闭环——用户只给「标的 + 区间 + 模板 + 参数」，不碰 CSV，
+  自动取真实未复权日线 → 统一门禁 → `runStrategy` → 通用策略视频。
+- **契约补齐**：`backtest_result.json` 新增 `market`（展示区间 OHLC，可选 volume），
+  只供渲染器画价格/买卖点，不参与回测；与 `equity` 日期逐日对齐，预热段不入片。
+  schema 与 `STRATEGY_SPEC §3` 已同步；策略引擎自检 27/27（新增 market 对齐断言）。
+- **新增**：
+  - `engine_next/render_strategy_video.py`：只读 `backtest_result.json` 的通用策略渲染器，
+    画价格曲线、买卖标记、持仓区间、资产曲线、当前/期末指标、来源与免责声明；
+    720 帧 / 24s / 1920×1080@30fps，固定画面文案不含时间戳。
+  - `tools/run_strategy_video.cjs`：策略卡 → 东方财富区间取数（自动补预热，最多回溯 730 天）
+    → `validateImport` → `runStrategy` → 写 `00_card.json / 01_data / 02_backtest / 04_video / run_result.json`。
+  - `datafeed/eastmoney_fetch.py` 新增 `--start/--end` 区间取数（`--days` 模式保留不变）。
+  - 样例卡 `samples/strategy_cards/close_buy_open_sell_600000.json`。
+- **实测**：600000 / 2024-01-02~2026-11-16，取数 815 根（预热 121、展示 694），
+  46 笔、期末 96,652.73、收益 -3.35%、最大回撤 3.35%（未提供分红表，结果不含现金分红）。
+  两次独立取数 + 出片：`resultSha256=d3240313…`、MP4 SHA `22b1705201f0…` 均逐字节一致；
+  `engine_next/tests/accept_strategy_video.py --run strategy_600000_A` **10/10**。
+- **契约修正**：验收发现 `equity` 原先把预热段也纳入，导致与 `market` 日期不一致；已在引擎层改为
+  只保留展示区间（预热仅用于指标热身），并同步改预热测试断言。渲染器不再需要猜哪一段是预热。
+- **边界**：首版只支持 `close_buy_open_sell` / `macd_cross` 两张卡；分红仍需用户提供三段式表；
+  通用策略片是首版视觉，不套 MACD 的 41 项像素级验收；尚未接网页与公开部署。
+
 ### A. 数据接口层 `datafeed/`（主线）
 - `datafeed/pytdx_fetch.py`：从 pytdx 拉未复权日线，生成 `stock_ohlc.csv` + `meta.json`。
   - 强制 `adjust=none`；主板代码段；起点 ≥ 2015-08-01；≥34 交易日；OHLC 自洽。
@@ -115,7 +138,7 @@
 | `node datafeed/tests/verify_datafeed_e2e.cjs` | **5/5**（含 G-6 qfq 仍被拒） |
 | 接口层产物喂 `validateImport` | `ok=true`，260 bars，警告仅 `W_NO_DIVIDENDS` |
 | `--probe-connection 115.238.90.165:7709`（pytdx） | `CONTROL_OK_DATA_EMPTY`：`securityCountSH=27881`，`bars600000=0` |
-| `node engine_next/tests/verify_strategy_engine.cjs` | **26/26**（锚点 7/7 + 新内核预热/金叉/跳空 8/8 + 门禁） |
+| `node engine_next/tests/verify_strategy_engine.cjs` | **27/27**（锚点 7/7 + 新内核预热/金叉/跳空 8/8 + 门禁 + market 对齐） |
 | `node tools/render_real_600000.cjs --run real_600000_v124_e2e`（v124 端到端） | **PASS 41/41**，SHA `59a4ce3d…` |
 | v124 第二次独立出片 `--run real_600000_v124_e2e2` | **PASS 41/41**，MP4 SHA 逐字节一致 |
 | `node engine_next/tests/accept_macd_video_v124.py`（真实/含分红/无分红三条） | 各 **PASS 41/41** |
@@ -134,7 +157,7 @@
 **阻断项**：无（当前不存在卡住发布的问题）。
 
 **非阻断项 / 待办**：
-1. **真实行情取数**：本机经代理访问免费行情服务器，控制通道正常但数据通道为空。家里网络直连若 `DATA_OK` 即可取真数；否则换 `--host` 或换网络。
+1. **真实行情取数**：东方财富 HTTP 通道在本机可用（§A2/A6 已多次取到真实日线）；pytdx 仍 `CONTROL_OK_DATA_EMPTY`，只作为家里直连的备用通道。
 2. **分红表**：真实股票多数有分红，接口层不自动补。要算准分红必须人工核对公告补三段式 `dividend.csv`（登记日/派息日缺一不可）。
 3. **V0.3 竖版片**：方向已定为暂停，分支保留，不合并 main。
 4. Draft PR：仍无。本轮不建；如要建，用 V02_HANDOFF 里的标题与 `docs/dev/V02_PR_BODY.md` 正文。
@@ -144,9 +167,16 @@
 主线是"股票策略可视化"，建议顺序：
 
 1. ~~真实数据走完整出片~~ **已完成**（§A3：41/41 + 两次 SHA 一致）。不必重做。
-2. **Web 接入策略卡**：选模板 + 填参数 + 选区间 + 导入 CSV（复用 `validateImport`）。策略引擎已把预热切分 / `macd_golden` 入场 / 9:25 跳空过滤真正执行（26/26 自检），接口就绪，待前端表单。
-3. **渲染器改读 `backtest_result.json`**：先做 MACD 模板等价替换保持 41/41，再支持 `close_buy_open_sell` 独立验收。
-4. **超短线策略**：`close_buy_open_sell` 已具备首版内核（尾盘买/次日开盘卖 + 跳空情绪过滤），但**尚未独立验收、未出片、未接网页**，按新增策略单独定义口径，不塞进 MACD 41 项。若将来要用竞价量级数据，另立契约。
+2. ~~策略卡 → 自动取数 → 回测 → 视频~~ **垂直切片已完成**（§A6：600000 两次 SHA 一致）。
+3. **Web 接策略卡（下一步最高优先）**：新增策略任务路由与表单——标的、区间、模板、参数；
+   后端复用 `eastmoney_fetch.py --start/--end` + `runStrategy` + `render_strategy_video.py`；
+   任务进度、预览、下载、失败重试。目标：陌生人不需要 CSV、不需要命令行。
+4. **策略表达层**：当前只有两张卡。先做 3~5 个可组合模板（均线交叉、突破、固定持有天数、
+   涨跌幅阈值），并把“自然语言 → 策略卡”作为**待确认的翻译层**（LLM 只生成卡，不直接执行）。
+5. **通用策略片独立验收**：把当前 10 项左右的结构检查固化为脚本（帧数/尺寸/结果指纹/买卖点与
+   trades 对齐/指标勾稽），再谈替代 MACD 的 41 项像素级验收。
+6. **公开部署**：本机服务只监听 127.0.0.1，陌生人无法访问；需要任务队列、并发限制、磁盘清理、
+   数据缓存与合规免责声明，才谈“开源用户在线生成”。
 
 ## 6. 家里电脑接续步骤
 
@@ -169,7 +199,12 @@ python -m pip install --target deps-datafeed pytdx
 python datafeed/pytdx_fetch.py --selftest          # 期望 13/13
 node datafeed/tests/verify_datafeed_e2e.cjs       # 期望 5/5
 npm run check:samples                              # 期望 30/30
+node engine_next/tests/verify_strategy_engine.cjs  # 期望 27/27
 python engine_next/tests/test_timeline_bounds.py  # 时间轴冻结
+
+# 5b) 策略卡直出片（需要东方财富网络）
+node tools/run_strategy_video.cjs --card samples/strategy_cards/close_buy_open_sell_600000.json --run strategy_600000_A
+python engine_next/tests/accept_strategy_video.py --run strategy_600000_A   # 期望 10/10
 
 # 6) 启动网页并验证本机数据通道
 npm start                                          # http://127.0.0.1:8080/

@@ -21,6 +21,23 @@
         "warnings": { "type": "array", "items": { "type": "string" } }
       }
     },
+    "market": {
+      "type": "array",
+      "description": "展示区间的行情序列，供渲染器画价格与买卖点；不参与回测计算",
+      "items": {
+        "type": "object",
+        "required": ["date", "open", "high", "low", "close"],
+        "additionalProperties": false,
+        "properties": {
+          "date": { "type": "string" },
+          "open": { "type": "number" },
+          "high": { "type": "number" },
+          "low": { "type": "number" },
+          "close": { "type": "number" },
+          "volume": { "type": "number" }
+        }
+      }
+    },
     "signals": {
       "type": "array",
       "items": {

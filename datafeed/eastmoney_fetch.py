@@ -171,19 +171,32 @@ def parse_klines(klines: List[str], days: Optional[int] = None,
     return raw, dropped
 
 
-def fetch_live(code: str, days: int, include_today: bool = False
+def fetch_live(code: str, days: int, include_today: bool = False,
+               start: Optional[str] = None, end: Optional[str] = None
                ) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
-    """真实取数：返回 (raw, 注入 meta 的 extra 字段)。"""
+    """真实取数：返回 (raw, 注入 meta 的 extra 字段)。
+
+    start/end 用于自动化“指定区间”取数（网页/策略卡直出片）。给了区间就不再按
+    days 截取，而是按 beg~end 原样取；区间仍要过 2015-08-01 与 >=34 根门禁。
+    """
     board = P.board_of(code)
     if board is None:
         raise P.DatafeedError("E_UNSUPPORTED_BOARD", f"代码 {code} 不在沪深主板，本版不支持。")
-    klines = fetch_klines(code)
-    raw, dropped = parse_klines(klines, days=days, include_today=include_today)
+    if start or end:
+        beg = (start or P.COST_RULES_START).replace("-", "")
+        end_c = (end or _dt.date.today().isoformat()).replace("-", "")
+        klines = fetch_klines(code, beg=beg, end=end_c)
+        raw, dropped = parse_klines(klines, days=None, include_today=include_today)
+    else:
+        klines = fetch_klines(code)
+        raw, dropped = parse_klines(klines, days=days, include_today=include_today)
     if not raw:
-        raise P.DatafeedError("E_NO_DATA", "剔除未收盘日后没有可用交易日，请检查 --days。")
+        raise P.DatafeedError("E_NO_DATA", "剔除未收盘日后没有可用交易日，请检查区间或 --days。")
     extra = {
         "fetchedAt": _dt.datetime.now().isoformat(timespec="seconds"),
-        "days": days,
+        "days": days if not (start or end) else len(raw),
+        "requestedStart": start,
+        "requestedEnd": end,
         "source": "eastmoney-push2his",
         "secid": secid_of(code),
         "endpoint": ENDPOINT,
@@ -201,7 +214,8 @@ def build_package(raw: List[Dict[str, Any]], code: str, name: str, extra_meta: O
         raw, code, name, (extra_meta or {}).get("source") or "eastmoney-push2his", extra_meta
     )
     # pytdx_fetch.build_package 只透传 fetchedAt/server/days；东方财富特有字段在此补齐。
-    for key in ("secid", "endpoint", "fqt", "includeToday", "excludedUnclosedDate"):
+    for key in ("secid", "endpoint", "fqt", "includeToday", "excludedUnclosedDate",
+                "requestedStart", "requestedEnd"):
         if extra_meta and key in extra_meta:
             meta[key] = extra_meta[key]
     meta["dividendNote"] = (
@@ -341,6 +355,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     ap.add_argument("--out", default="", help="输出目录")
     ap.add_argument("--include-today", action="store_true",
                     help="包含今天的盘中 K 线（仅收盘后使用；默认剔除以免 close 未定）")
+    ap.add_argument("--start", default="", help="区间起点 YYYY-MM-DD（给定时不再按 --days 截取）")
+    ap.add_argument("--end", default="", help="区间终点 YYYY-MM-DD（给定时不再按 --days 截取）")
     args = ap.parse_args(argv)
 
     if args.selftest:
@@ -365,8 +381,13 @@ def main(argv: Optional[List[str]] = None) -> int:
     if not args.out:
         print("E_ARGS: --live 需要 --out 输出目录", file=sys.stderr)
         return 2
+    for label, value in (("--start", args.start), ("--end", args.end)):
+        if value and not re.fullmatch(r"\d{4}-\d{2}-\d{2}", value):
+            print(f"E_ARGS: {label} 必须是 YYYY-MM-DD", file=sys.stderr)
+            return 2
     try:
-        raw, extra = fetch_live(args.code, args.days, args.include_today)
+        raw, extra = fetch_live(args.code, args.days, args.include_today,
+                                args.start or None, args.end or None)
         csv_text, meta = build_package(raw, args.code, args.name, extra)
         paths = P.write_package(csv_text, meta, args.out)
         print(f"已生成 {paths['csv']}（{meta['summary']['bars']} 交易日，"

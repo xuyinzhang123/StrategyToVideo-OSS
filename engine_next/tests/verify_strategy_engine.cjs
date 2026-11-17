@@ -104,9 +104,18 @@ check('close_buy_open_sell 同输入两次 SHA 一致', () => {
   assert.equal(overnight.reproducibility.resultSha256, again.reproducibility.resultSha256);
 });
 check('两模板结果结构同构', () => {
-  const keys = ['schemaVersion', 'strategy', 'state', 'signals', 'trades', 'equity', 'decisions', 'metrics', 'reproducibility'];
+  const keys = ['schemaVersion', 'strategy', 'state', 'market', 'signals', 'trades', 'equity', 'decisions', 'metrics', 'reproducibility'];
   assert.deepEqual(Object.keys(overnight).sort(), keys.sort());
   assert.deepEqual(Object.keys(macd).sort(), keys.sort());
+});
+check('market 只含展示区间且与 equity 日期对齐', () => {
+  for (const r of [overnight, macd]) {
+    assert.ok(r.market.length > 0);
+    assert.equal(r.market[0].date, r.strategy.range.start);
+    assert.equal(r.market[r.market.length - 1].date, r.strategy.range.end);
+    assert.deepEqual(r.market.map(b => b.date), r.equity.map(e => e.date));
+    assert.ok(r.market.every(b => b.high >= Math.max(b.open, b.close, b.low) && b.low <= Math.min(b.open, b.close, b.high)));
+  }
 });
 
 // ---- C. 门禁 ----
@@ -140,9 +149,9 @@ const signalCard = Object.assign({}, baseCard, {
 });
 const signaled = runStrategy(signalCard, input);
 
-check('预热切分：预热段 equity 有值但零成交', () => {
-  const warmEquity = signaled.equity.filter(e => e.date < signalCard.range.start);
-  assert.ok(warmEquity.length > 0, '应存在预热段逐日估值');
+check('预热切分：预热段零成交，equity 从展示起点开始', () => {
+  assert.ok(signaled.equity.length > 0);
+  assert.equal(signaled.equity[0].date, signalCard.range.start, 'equity 不应包含预热段');
   assert.equal(signaled.trades.filter(t => t.date < signalCard.range.start).length, 0, '预热段不得有任何成交');
   assert.equal(signaled.state.warmupExec.mode, 'prepend-no-trade');
   assert.equal(signaled.state.warmupExec.displayTradableDays + signaled.state.warmupExec.warmupTradableDays > 0, true);
@@ -197,8 +206,8 @@ check('always 入场等价旧隔夜骨架（每交易日收盘买、次日开盘
   const byDate = new Map(input.bars.map(b => [b.date, b]));
   assert.ok(always.trades.every(t => t.price === (t.side === 'BUY' ? byDate.get(t.date).close : byDate.get(t.date).open)));
 });
-check('新结果仍符合统一 schema（九大块）', () => {
-  const keys = ['schemaVersion', 'strategy', 'state', 'signals', 'trades', 'equity', 'decisions', 'metrics', 'reproducibility'];
+check('新结果仍符合统一 schema（含 market）', () => {
+  const keys = ['schemaVersion', 'strategy', 'state', 'market', 'signals', 'trades', 'equity', 'decisions', 'metrics', 'reproducibility'];
   assert.deepEqual(Object.keys(signaled).sort(), keys.sort());
   assert.ok(signaled.equity.every(e => Number.isFinite(e.asset)));
 });
@@ -206,5 +215,5 @@ check('signals 禁止未来函数（新内核成交日>=信号日）', () => {
   assert.ok(signaled.signals.every(s => s.execDate >= s.date));
 });
 
-console.log(`\n策略引擎自检：${passed}/26 通过`);
-if (passed !== 26) process.exitCode = 1;
+console.log(`\n策略引擎自检：${passed}/27 通过`);
+if (passed !== 27) process.exitCode = 1;

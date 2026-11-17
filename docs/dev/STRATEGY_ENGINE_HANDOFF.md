@@ -18,8 +18,11 @@
 | `docs/schemas/strategy.schema.json` | 策略卡 JSON Schema（draft-07） |
 | `docs/schemas/backtest_result.schema.json` | 统一结果 JSON Schema（draft-07） |
 | `engine_next/strategy_engine.cjs` | 策略引擎门面：`runStrategy(card, input, cfg)` + CLI；负责校验、组装、哈希 |
-| `engine_next/strategy_runner.cjs` | **本轮新增**：`close_buy_open_sell` 专用内核，实现预热切分/入场信号/跳空过滤 |
-| `engine_next/tests/verify_strategy_engine.cjs` | **26 项自检**：锚点复现 / 新内核三项能力 / 门禁 |
+| `engine_next/strategy_runner.cjs` | `close_buy_open_sell` 专用内核，实现预热切分/入场信号/跳空过滤 |
+| `engine_next/render_strategy_video.py` | **本轮新增**：只读统一结果的通用策略渲染器（价格/买卖点/资产/指标） |
+| `tools/run_strategy_video.cjs` | **本轮新增**：策略卡 → 自动取数 → 回测 → 出片的 CLI 垂直切片 |
+| `samples/strategy_cards/` | 策略卡样例（首版：600000 尾盘买/次日开盘卖） |
+| `engine_next/tests/verify_strategy_engine.cjs` | **27 项自检**：锚点复现 / 新内核三项能力 / 门禁 / market 对齐 |
 
 ## 2. 两个模板与复用关系
 
@@ -51,13 +54,15 @@
 字段见 `docs/STRATEGY_SPEC.md §3` 与 schema。`signals/trades/equity` 来自内核，
 `metrics` 来自 `summary`；`decisions` 在 `close_buy_open_sell` 下由 runner 直接产出
 （含 `openGapPct` / `HOLD` 决策），`macd_cross` 仍由门面归一化生成。
+`market` 是展示区间行情副本（不参与回测），供渲染器画价格与买卖点，必须与 `equity` 日期逐日对齐。
 `reproducibility.resultSha256` 按“先置空再算”约定，可重复计算。
 
 ## 4. 自检结果（2026-11-17）
 
 | 项目 | 结果 |
 |---|---|
-| `node engine_next/tests/verify_strategy_engine.cjs` | **26/26**（含锚点 7/7、新内核 8/8） |
+| `node engine_next/tests/verify_strategy_engine.cjs` | **27/27**（含锚点 7/7、新内核 8/8、market 对齐 1/1） |
+| `python engine_next/tests/accept_strategy_video.py --run strategy_600000_A` | **10/10**（契约/日期/指标/规格/SHA/画面非空） |
 | `python datafeed/eastmoney_fetch.py --selftest` | 20/20 |
 | `node datafeed/tests/verify_eastmoney_e2e.cjs` | 8/8 |
 | `python datafeed/pytdx_fetch.py --selftest` | 13/13 |
@@ -80,10 +85,14 @@
 
 ## 6. 下一步建议
 
-1. 网页接入策略卡表单：选模板 + 填参数 + 选区间 + 导入 CSV（复用现有 `validateImport`）。
-2. 渲染器改为读 `backtest_result.json`（先做 MACD 模板的等价替换，保持 41/41）。
-3. 为 `close_buy_open_sell` 定义独立验收标准（不套 MACD 41 项），并出一条真实数据片。
-4. 如需更细的竞价情绪，另立数据契约（竞价量/未匹配量/逐笔委托），不塞进日线策略卡。
+1. 网页接入策略卡表单：选模板 + 填参数 + 选区间，后台自动取数并排队出片（不再要求 CSV）。
+2. 把 `tools/run_strategy_video.cjs` 的串联逻辑抽成 `web/src/strategyRunner.cjs` 或任务适配器，
+   接 `/api/tasks` 与前端进度/预览/下载；仍只监听 127.0.0.1，公开部署另议。
+3. 为通用策略片补独立验收脚本（结果指纹、买卖点与 trades 对齐、指标勾稽、帧数与尺寸），
+   不套 MACD 41 项；MACD 模板等价替换保持 41/41 是后续单独任务。
+4. 增加 3~5 个可组合模板（均线交叉、突破、固定持有天数、涨跌幅阈值），
+   自然语言只作为“生成策略卡”的翻译层，必须人工确认后才执行。
+5. 如需更细的竞价情绪，另立数据契约（竞价量/未匹配量/逐笔委托），不塞进日线策略卡。
 
 ## 7. 硬边界（继续遵守）
 
