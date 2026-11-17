@@ -285,6 +285,24 @@ python datafeed/pytdx_fetch.py --live --code 600000 --name 浦发银行 --days 2
 
 若要看竖版片暂停前的成果：`git checkout -b feat/v0.3-phase0-storyboard --track origin/feat/v0.3-phase0-storyboard`。
 
+### 接续提示词（回家直接粘贴给助手）
+
+```text
+StrategyToVideo OSS｜接续 feat/datafeed-pytdx（已推送到 95bbaa9）
+
+已完成：策略卡 → 东方财富自动取数 → 统一回测 → 通用策略视频，已接网页
+（填代码+区间+模板即可出片，无需 CSV）；网页路径 20/20 验收、815/815 溯源。
+
+现在请做「策略表达层」：新增 3~5 个可组合模板（均线交叉、突破、固定持有天数、涨跌幅阈值）。
+硬要求：
+1) 先设计再改 strategy_runner.cjs，新增参数默认关闭，不得改变现有 46 笔锚点；
+2) 改完必须复跑 verify_strategy_engine.cjs(27/27)、check:card(36/36)、
+   e2e:card（期望 20/20 + resultSha256 不变）；
+3) 新模板同步补 web/src/strategyCard.js 白名单与前端表单，不另开链路；
+4) 每加一个模板补一条验收与一张样例卡，出片后跑 check:accept 与 check:accept:neg；
+5) 推送同名分支 feat/datafeed-pytdx，不动 main / Release / 私人仓库。
+```
+
 ## 7. 不需要重复验证的已有成果
 
 - V0.2 的 41/41 股票验收、V0.1 演示 40/40、V1.2.3 41/41、时间轴冻结 SHA、determinism 对拍——都已通过且本轮零改动，不要重跑。
