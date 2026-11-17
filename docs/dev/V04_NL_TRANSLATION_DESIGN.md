@@ -1,12 +1,14 @@
 # V0.4 自然语言 → 策略卡 翻译层设计
 
-状态：**阶段 A 已实现**（契约 + 离线确定性解析器 + 验收）；
-阶段 B（网页确认界面）、阶段 C（可选 LLM 适配器）未开发。
+状态：**阶段 A、B 已实现**（契约 + 离线确定性解析器 + 网页确认界面）；
+阶段 C（可选 LLM 适配器）未开发。全部位于分支 `feat/v0.4-nl-layer`，**未合并、未发版**。
 
 关联文件：
 
 - 契约与解析器：[`engine_next/strategy_nl.cjs`](../../engine_next/strategy_nl.cjs)
-- 验收脚本：[`engine_next/tests/verify_nl_parser.cjs`](../../engine_next/tests/verify_nl_parser.cjs)
+- 解析器验收：[`engine_next/tests/verify_nl_parser.cjs`](../../engine_next/tests/verify_nl_parser.cjs)
+- 确认层服务：[`web/src/nlPreview.js`](../../web/src/nlPreview.js)（`POST /api/nl/preview`）
+- 确认层验收：[`tools/check_nl_preview.cjs`](../../tools/check_nl_preview.cjs)
 - 既有组件白名单：[`engine_next/strategy_conditions.cjs`](../../engine_next/strategy_conditions.cjs)
 - 既有前置白名单：[`web/src/strategyCard.js`](../../web/src/strategyCard.js)
 - 既有卡片 schema：[`docs/schemas/strategy.schema.json`](../schemas/strategy.schema.json)
@@ -153,18 +155,23 @@
 
 ---
 
-## 七、确认与修改流程（阶段 B）
+## 七、确认与修改流程（阶段 B，已实现）
 
 ```text
-输入中文 → 解析 → 确认页
-   ├─ 规则串（只读，来自结构化字段）
-   ├─ 参数表（可编辑：fast/slow/lookback/days/tp/sl）
-   ├─ 默认值清单（必须勾选"我知道了"）
-   └─ [重新校验]  [确认并回测]
+输入中文 → POST /api/nl/preview → 确认卡片
+   ├─ 规则串（只读，由结构化字段生成）
+   ├─ 参数表（可编辑：fast/slow/lookback/days/tp/sl/holdIfGte）
+   ├─ 默认值清单（有默认值时必须勾选「我已核对」才能点确认）
+   └─ [解析]  [确认并填入策略卡]
 ```
 
-改任一参数 → 重跑 ②③ 门禁 → 通过才允许点"确认并回测"。
-**未经确认的 draft 不落库、不取数、不出片。**
+- 改任一参数 → 重新 `POST /api/nl/preview` → 服务端用**同一套门禁**重算参数**和规则串**。
+- 确认后 `nlState.confirmed` 成为唯一提交来源；描述文本、模板、入场/退出条件的任何手工改动
+  都会立刻作废该确认，界面提示需重新解析。**未确认的草案永远不参与提交。**
+- 只允许改数值，不允许借改参新增或删除条件：没有「固定持有」就改天数、没有「止盈止损」就改止盈，
+  一律 `E_OVERRIDE_NO_TARGET`；MACD 改参 `E_OVERRIDE_LOCKED`；非白名单字段 `E_OVERRIDE_UNKNOWN`；
+  类型不对 `E_OVERRIDE_TYPE`。唯一例外是 `stopLoss` 从 `null` 改为数值——那是用户显式补的，
+  会同时反映在规则串里，并需要重新确认。
 
 ---
 
@@ -196,9 +203,10 @@
 
 ---
 
-## 十、不做的事（本轮明确不做）
+## 十、明确不做的事
 
-- 不做网页确认界面（阶段 B）。
-- 不接任何 LLM / 外部 API（阶段 C）。
+- 不接任何 LLM / 外部 API（阶段 C；接的时候必须复用同一份 draft 契约与同一套门禁）。
+- 不做多轮对话式澄清：一次只解析一句策略。
+- 不在确认页增删条件：要换条件就改描述重新解析。
 - 不解析证券代码以外的业务字段：日期、本金、分红表仍由表单提供。
 - 不改 `strategy_conditions.cjs`、`strategy_runner_composed.cjs`、验收脚本与任何封版文件。
