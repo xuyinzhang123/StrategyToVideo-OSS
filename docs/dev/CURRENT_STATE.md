@@ -6,7 +6,7 @@
 ## 0. 一句话结论
 
 已发布 V0.2（tag `v0.2.0`，main=`5884e0f`）；方向确认**专注股票策略可视化**，暂停其它视频形式。
-本主线已完成四件事：① 双数据接口（`pytdx` + `eastmoney`）打通到校验门禁；② **东方财富在工厂电脑已取到真实 260 日数据并通过 validateImport**（pytdx 仍 `CONTROL_OK_DATA_EMPTY`）；③ 策略卡契约 + 独立策略引擎（`macd_cross` 复现封版锚点、`close_buy_open_sell` 的预热切分/金叉入场/9:25 跳空过滤已真正执行，26/26 自检）；④ **真实数据已走完整出片并通过 41/41 验收、两次独立出片 SHA 逐字节一致**（详见 §A3）。
+本主线已完成五件事：① 双数据接口（`pytdx` + `eastmoney`）打通到校验门禁；② **东方财富在工厂电脑已取到真实 260 日数据并通过 validateImport**（pytdx 仍 `CONTROL_OK_DATA_EMPTY`）；③ 策略卡契约 + 独立策略引擎（`macd_cross` 复现封版锚点、`close_buy_open_sell` 的预热切分/金叉入场/9:25 跳空过滤已真正执行，26/26 自检）；④ **真实数据已走完整出片并通过 41/41 验收、两次独立出片 SHA 逐字节一致**（详见 §A3）；⑤ **主图 Y 轴自适应渲染档 V1.2.4 已作为默认出片版本接入**，解决"下半屏很空"，三条数据各 41/41、端到端两次 SHA 一致（详见 §A4）。
 注意：策略引擎**尚未接网页**、渲染器**尚未改读 `backtest_result.json`**、新策略**尚无独立验收口径/出片**——这些是下一步，不得宣称已完成。
 
 ## 1. 分支与指针（以 GitHub 为准）
@@ -50,6 +50,25 @@
 - 产物全部按 `.gitignore` 忽略（`datafeed/out/`、`output/*/01_data/`、`output/*/02_backtest_macd/`、
   `output/*/04_video/`、`output/_work_*/`），真实行情数据不入库。
 
+### A4. 主图 Y 轴自适应渲染档 V1.2.4（2026-11-17 下午追加，默认出片版本已切换）
+- **问题**：用户反馈 V1.2.3 的"下半屏很空"——主图 Y 轴下限硬编码 0
+  （`ya = v/AMAX`），资金只在窄区间波动时（如真实 600000 落在 7~11 万）曲线全挤在上半部，
+  0~6 万大片空白。这是刻度策略问题，不是数据问题。
+- **方案（受控副本，V1.2.3 脚本一字未改）**：新增
+  `engine_next/render_stock_macd_v124.py` + `engine_next/tests/accept_macd_video_v124.py`。
+  下限改为按本次两条资金序列 + 初始资金自适应：步长由数据跨度决定，`AMIN=floor(谷值-0.3步)`（≥0），
+  `AMAX` 由峰值留白决定，刻度从 AMIN 起等距。浮板选位改为两级（152px→126px），事件行在
+  空间不足时让位并在报告 `suppressed.panel_event_row` 如实计数；零遮挡判据不放宽。
+- **接入**：`web/src/adapters/stockOhlc.cjs` 的 `SEALED_FILES.renderScript/acceptScript` 已切到 v124，
+  STEP 文案 / 错误消息 / `videoVersion` 同步更新。V0.1 演示仍走 v122；v122/v123 脚本本身零改动。
+- **实测（三条数据各 41/41）**：
+  - 真实 600000：刻度 `[6万,7.5万,9万,10.5万,12万]`（旧为 0~12 万），曲线铺满主图、下方空白消失。
+  - 含分红样例（web_fix_withdiv）：`[9万…13万]` 41/41；无分红横盘样例：`[9万…12万]` 41/41。
+  - 端到端走适配器（`node tools/render_real_600000.cjs --run real_600000_v124_e2e`）**PASS 41/41**，
+    **两次独立出片 MP4 逐字节一致**，SHA-256 `59a4ce3d2284a794e0dbc6716baecb454d823b8238cb2dedb832278331d5d7e4`，
+    与手工 v124 渲染 SHA 相同（网页路径 ≡ 手工路径）。
+- 旧片 `real_600000_A/_B` 是 v1.2.3 旧刻度（SHA `593fd212…`），保留作对照；新片看 `*_v124_e2e`。
+
 ### A. 数据接口层 `datafeed/`（主线）
 - `datafeed/pytdx_fetch.py`：从 pytdx 拉未复权日线，生成 `stock_ohlc.csv` + `meta.json`。
   - 强制 `adjust=none`；主板代码段；起点 ≥ 2015-08-01；≥34 交易日；OHLC 自洽。
@@ -75,13 +94,13 @@
 | 接口层产物喂 `validateImport` | `ok=true`，260 bars，警告仅 `W_NO_DIVIDENDS` |
 | `--probe-connection 115.238.90.165:7709`（pytdx） | `CONTROL_OK_DATA_EMPTY`：`securityCountSH=27881`，`bars600000=0` |
 | `node engine_next/tests/verify_strategy_engine.cjs` | **26/26**（锚点 7/7 + 新内核预热/金叉/跳空 8/8 + 门禁） |
-| `node tools/render_real_600000.cjs --run real_600000_A`（真实数据出片） | **PASS 41/41**，SHA `593fd212…` |
-| 第二次独立出片 `--run real_600000_B` | **PASS 41/41**，MP4 SHA 与 A 逐字节一致 |
-| `git diff 5884e0f -- engine_next/lib/ web/ tools/check_*.cjs docs/DATA_SPEC.md docs/samples/ ...` | 空（封版出片链零改动，新增工具不计） |
+| `node tools/render_real_600000.cjs --run real_600000_v124_e2e`（v124 端到端） | **PASS 41/41**，SHA `59a4ce3d…` |
+| v124 第二次独立出片 `--run real_600000_v124_e2e2` | **PASS 41/41**，MP4 SHA 逐字节一致 |
+| `node engine_next/tests/accept_macd_video_v124.py`（真实/含分红/无分红三条） | 各 **PASS 41/41** |
+| `git diff 5884e0f -- engine_next/lib/ engine_next/render_stock_macd_v122.py engine_next/render_stock_macd_v123.py engine_next/tests/accept_macd_video_v123.py engine_next/backtest_stock_macd.cjs tools/check_*.cjs docs/DATA_SPEC.md docs/samples/ ...` | 空（封版脚本零改动，新增 v124 与适配器脚本指向不计） |
 
 数据状态按接口区分，不要混为一谈：
-- **东方财富接口已取得真实数据**：600000 未复权日线 260 交易日，通过 `validateImport`（见 §A2）。
-  但**尚未用这批真实数据走完整出片**（导入→回测→V1.2.3→41 项）。
+- **东方财富接口已取得真实数据**：600000 未复权日线 260 交易日，通过 `validateImport`，且已走完整出片（见 §A3/§A4）。
 - **pytdx 仍是 `CONTROL_OK_DATA_EMPTY`**：连得上、股票数正常，但 K 线数据空洞。不要写成"pytdx 已验证真实数据"。
 - 按用户 11:13 口径，日线策略用 `open/close` 即可表达尾盘买/次日开盘卖，`--probe-auction`（竞价/分钟量级）
   **不再是前置条件**；只有要用竞价量/未匹配量/逐笔委托时才需要，那时另立数据契约。

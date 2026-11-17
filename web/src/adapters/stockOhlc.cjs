@@ -4,8 +4,9 @@
 //
 // 职责：把任务目录里已校验的归一化模型（import.json）转成 MACD 回测引擎要求的
 //       01_data/stock_daily.json + 01_data/dividend_calendar.json，然后复用现有
-//       backtest_stock_macd.cjs / render_stock_macd_v123.py / accept_macd_video_v123.py。
-//       （V1.2.3 只在 V1.2.2 基础上适配短样本的时间轴与浮板定位；V0.1 演示仍走 v122。）
+//       backtest_stock_macd.cjs / render_stock_macd_v124.py / accept_macd_video_v124.py。
+//       （V1.2.4 在 V1.2.3 基础上把主图 Y 轴下限改为按本次资产轨迹自适应，解决资金
+//        在窄区间波动时下半屏空白；v122/v123 脚本本身零改动，V0.1 演示仍走 v122。）
 //
 // 约束：
 //   1. 不改回测算法、不改 V1.2.2 渲染器、不改验收脚本——只做「数据形状转换 + 文案标注」。
@@ -30,16 +31,16 @@ const SEALED_FILES = {
   backtestConfig: path.join(ENGINE_DIR, 'config.stock_macd.json'),
   videoConfig: path.join(ENGINE_DIR, 'config.stock_macd_video_v122.json'),
   backtestScript: path.join(ENGINE_DIR, 'backtest_stock_macd.cjs'),
-  renderScript: path.join(ENGINE_DIR, 'render_stock_macd_v123.py'),
-  acceptScript: path.join(ENGINE_DIR, 'tests', 'accept_macd_video_v123.py'),
+  renderScript: path.join(ENGINE_DIR, 'render_stock_macd_v124.py'),
+  acceptScript: path.join(ENGINE_DIR, 'tests', 'accept_macd_video_v124.py'),
 };
 
 const STEPS = [
   '读取导入数据并核对留档',
   '生成回测输入（八段结构）',
   '真实回测（MACD 12/26/9）',
-  '视频渲染 V1.2.3（USER_IMPORT 标注 · 短样本布局自适应）',
-  'V1.2.3 独立验收（数据一致性 / 零遮挡 / 平滑度）',
+  '视频渲染 V1.2.4（USER_IMPORT 标注 · 主图 Y 轴下限自适应）',
+  'V1.2.4 独立验收（数据一致性 / 零遮挡 / 平滑度）',
 ];
 
 function sha256File(p) {
@@ -484,14 +485,14 @@ async function execute(ctx) {
     pass: acceptCounts ? acceptCounts.pass : null,
     fail: acceptCounts ? acceptCounts.fail : null,
     items: acceptFailures,
-    note: 'V1.2.3 已把「首个 MACD 点横向留白」改为按样本长度推导、浮板高度改读渲染报告；'
-      + '若仍失败，说明本次数据在 V1.2.3 判据下确有缺陷（如浮板上下都放不下 → forced-top）。',
+      note: 'V1.2.4 主图 Y 轴下限按本次资产轨迹自适应（V1.2.3 固定 0）；'
+        + '若仍失败，说明本次数据在 V1.2.4 判据下确有缺陷（如浮板两级位都放不下 → forced-top）。',
   }, null, 2), 'utf8');
   if (ac.code !== 0 || (acceptCounts && acceptCounts.fail > 0)) {
     const brief = acceptFailures.slice(0, 3).map((f) => f.name).join('；');
     throw {
       code: 'E_VERIFY_FAILED',
-      message: `V1.2.3 独立验收未通过（PASS ${acceptCounts ? acceptCounts.pass : '?'} / FAIL ${acceptCounts ? acceptCounts.fail : '?'}）`
+      message: `V1.2.4 独立验收未通过（PASS ${acceptCounts ? acceptCounts.pass : '?'} / FAIL ${acceptCounts ? acceptCounts.fail : '?'}）`
         + (brief ? `：${brief}${acceptFailures.length > 3 ? ' 等' : ''}` : '')
         + '。明细见任务目录 accept_failures.json 与 engine.log。'
         + '本版不为通过验收修改回测结果，也不删除任何校验项。',
@@ -575,7 +576,7 @@ async function execute(ctx) {
     board: S.meta.board,
     adjust: model.meta.adjust,
     macdParams: S.macd.macdParams || { fast: 12, slow: 26, signal: 9 },
-    videoVersion: 'V1.2.3',
+    videoVersion: 'V1.2.4',
     panelAnchor: (R.geometry && R.geometry.panel && R.geometry.panel.anchor) || null,
     sourceKind: 'USER_IMPORT',
     archive: {
