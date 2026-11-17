@@ -439,3 +439,48 @@ CLI `6b49eda0…` vs 文档 `22b17052…`），但 resultSha256 与全部验收�
 `strategy_engine.cjs`、v122/v123 渲染器、`accept_strategy_video.py`、`docs/DATA_SPEC.md` 全为空。
 
 **未做（阶段 B/C）**：网页确认界面、LLM 适配器、把翻译结果接入 `buildCard` 的实际请求链。
+
+---
+
+## A12. V0.4 阶段 B：网页确认界面（分支 `feat/v0.4-nl-layer`，未合并）
+
+**范围**：把阶段 A 的解析器接到本机网页，让用户能看见规则、能改参数、必须显式确认。
+仍然**不接任何 LLM、不联网取数、不改引擎与验收体系**。
+
+**新增/改动**
+
+- `web/src/nlPreview.js`（新增）：`previewNl({text, overrides})`，纯函数，无副作用。
+  用户改参后**重走同一套门禁**（`normalizeParams` → `buildConditions`），并用同一份结构化字段
+  重新生成 `ruleText`，保证「界面显示的规则」与「最终提交的 params」同源。
+- `web/server.js`：新增 `POST /api/nl/preview`（同源校验 + 请求体上限复用既有 readJsonBody）。
+  解析不通过不是服务器错误，统一 `200 + ok:false`，前端按 `issues` 展示。
+- `web/public/app.js`：策略卡表单顶部新增「用一句话描述策略」区块（textarea / 解析 / 确认并填入 /
+  参数编辑 / 默认值勾选）。确认后 `nlState.confirmed` 固化 params，`buildCardRequest` 优先使用它；
+  文本、模板、入场/退出条件的任何手工改动都会调用 `invalidateNl()` 作废确认状态。
+- `web/public/styles.css`：`.nl-*` 样式。
+- `tools/check_nl_preview.cjs`（新增）+ `package.json` 的 `check:nl-preview`。
+
+**只允许改数值参数**：`fast / slow / lookback / days / takeProfit / stopLoss / holdIfGte`。
+不允许借改参新增或删除条件——没有「固定持有」就改天数、没有「止盈止损」就改止盈，
+一律 `E_OVERRIDE_NO_TARGET`；MACD 模板改参一律 `E_OVERRIDE_LOCKED`。
+唯一的例外是 `stopLoss` 从 `null` 改成数值：那是用户显式补的，界面上会立刻反映在规则串里并需重新确认。
+
+**验收**
+
+- `node tools/check_nl_preview.cjs` → **13/13**。
+- UI 用无头 Edge（`--headless=new --dump-dom`）真实点过两遍完整流程，未留测试钩子：
+  1. 选策略卡 → 输入描述 → 解析 → 规则串与 5 个参数框渲染 → 确认后模板切到 `composition`、状态显示已确认；
+  2. 「均线金叉」这类未给周期的输入 → `apply` 在勾选「我已核对默认值」前保持禁用；
+     勾选后可确认；把快线改成 10 → 规则串同步变成 `MA10 上穿 MA20`；
+     再改成 fast=10/slow=8 → 界面报 `E_MA_PARAMS` 且确认按钮重新禁用。
+- 端到端缝隙验证：把 `previewNl` 产出的 `cardRequest.params` 直接 POST `/api/tasks`，
+  服务端接受并创建任务（`queued`，仍是「创建 → 人工确认执行」两步），验证后已删除该任务。
+
+**回归（本机，2026-11-17 22:xx）**：引擎 27/27、组合 10/10、翻译层 24/24、确认层 13/13、
+策略卡接口 36/36、`check:api` 6/6。
+
+**已知限制（阶段 C 再处理）**
+
+- 只允许改数值，不允许在确认页增删条件；要换条件得改描述重新解析。
+- 一次只解析一句策略，不做多轮对话式澄清。
+- 网页端仍只服务 `127.0.0.1`，未公开部署。

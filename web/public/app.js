@@ -33,6 +33,11 @@
   var divState = { text: null, name: '' }; // C 类可选分红表原文（只在内存里）
   var paramsBadge = document.getElementById('params-badge');
 
+  // V0.4 阶段 B：自然语言草案。
+  // confirmed 是唯一会被提交的东西；它由用户点「确认并填入」产生，
+  // 文本或表单任何手工改动都会把它作废（见 invalidateNl）。
+  var nlState = { confirmed: null, draft: null };
+
   // 各策略表单元数据（默认值来自已验证 sealed 配置）
   var META = {
     strategy_card: {
@@ -269,6 +274,12 @@
       + '本版只支持沪深主板；不提供分红表时，视频会明确标注「不含现金分红」。</p>'
     ));
 
+    // V0.4 阶段 B：先写策略、再填标的。解析在本机完成（不联网、不调 AI），
+    // 结果必须点「确认并填入」才会被提交；确认后任何手工改动都会作废该状态。
+    nlState = { confirmed: null, draft: null };
+    paramsForm.appendChild(renderNlBox());
+    bindNlBox();
+
     paramsForm.appendChild(els(
       '<div class="field"><label>证券代码（必填 · 6 位）</label>' +
       '<input type="text" id="f-symbol" maxlength="6" inputmode="numeric" autocomplete="off" placeholder="例如 600000" />' +
@@ -310,6 +321,7 @@
 
     findEl('f-div').addEventListener('change', onDividendChosen);
     findEl('f-template').addEventListener('change', renderCardTemplateParams);
+    findEl('f-template').addEventListener('change', function () { invalidateNl('你更换了策略模板'); });
     renderCardTemplateParams();
     createBtn.disabled = false;
     hint.textContent = '已选择：' + m.name + '。填代码与区间即可创建任务。';
@@ -353,6 +365,7 @@
       };
       Array.prototype.forEach.call(document.querySelectorAll('.f-comp-entry, .f-comp-exit'), function (node) {
         node.addEventListener('change', updateSummary);
+        node.addEventListener('change', function () { invalidateNl('你改动了模板里的入场/退出条件'); });
       });
       updateSummary();
     } else if (tpl === 'close_buy_open_sell') {
@@ -364,6 +377,251 @@
   function findEl(id) {
     var node = document.getElementById(id);
     return node;
+  }
+
+  /* ================= V0.4 阶段 B：自然语言 → 策略卡草案 =================
+   * 只调本机 /api/nl/preview：不联网、不调 AI、不建任务。
+   * 服务端会用与执行完全相同的门禁重算参数与规则串，
+   * 因此「界面显示的规则」与「提交的 params」不会分叉。
+   * ==================================================================== */
+
+  function renderNlBox() {
+    return el(
+      '<div class="field field-wide nl-box" id="nl-box">' +
+      '<label>用一句话描述策略 <span class="nl-tag">可选 · 本机解析</span></label>' +
+      '<textarea id="nl-text" rows="3" maxlength="300" ' +
+      'placeholder="例如：5日均线上穿20日均线买入，持有5个交易日卖出，涨10%止盈"></textarea>' +
+      '<div class="nl-actions">' +
+      '<button type="button" id="nl-parse" class="ghost-btn">解析</button>' +
+      '<button type="button" id="nl-apply" class="ghost-btn" disabled>确认并填入策略卡</button>' +
+      '</div>' +
+      '<span class="field-hint">解析在本机完成，不联网、不调用任何 AI 接口。'
+      + '没说出场条件、或出现不支持的指标时会直接拒绝，不会替你猜。</span>' +
+      '<div id="nl-status" class="nl-status"></div>' +
+      '<div id="nl-result"></div>' +
+      '</div>'
+    );
+  }
+
+  function bindNlBox() {
+    var parseBtn = findEl('nl-parse');
+    var applyBtn = findEl('nl-apply');
+    var ta = findEl('nl-text');
+    if (!parseBtn || !applyBtn || !ta) return;
+    parseBtn.addEventListener('click', function () { nlParse({}); });
+    ta.addEventListener('input', function () {
+      var hadConfirmed = !!nlState.confirmed;
+      invalidateNl('你修改了策略描述');
+      nlState.draft = null;
+      var box = findEl('nl-result');
+      if (box) box.innerHTML = '';
+      // 原本就没确认过的话，不必弹「已失效」，直接把状态清空即可
+      if (!hadConfirmed) {
+        var st = findEl('nl-status');
+        if (st) { st.className = 'nl-status'; st.textContent = ''; }
+      }
+      applyBtn.disabled = true;
+    });
+    applyBtn.addEventListener('click', nlApply);
+  }
+
+  function invalidateNl(reason) {
+    if (!nlState.confirmed) return;
+    nlState.confirmed = null;
+    var st = findEl('nl-status');
+    if (st) {
+      st.className = 'nl-status warn';
+      st.textContent = '已失效：' + reason + '，请重新解析并确认后再执行。';
+    }
+  }
+
+  function nlParse(overrides) {
+    var text = nlTextOf();
+    var resultBox = findEl('nl-result');
+    var parseBtn = findEl('nl-parse');
+    if (!resultBox) return;
+    if (!String(text || '').trim()) {
+      resultBox.innerHTML = '<div class="result bad">请先写一句策略描述，例如「5日均线上穿20日均线买入，持有5个交易日卖出」。</div>';
+      return;
+    }
+    if (parseBtn) { parseBtn.disabled = true; parseBtn.textContent = '解析中…'; }
+    fetch('/api/nl/preview', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text: text, overrides: overrides || {} })
+    }).then(function (r) { return r.json(); })
+      .then(function (payload) {
+        nlState.draft = payload && payload.draft ? payload.draft : null;
+        nlRender(nlState.draft);
+      })
+      .catch(function (e) {
+        resultBox.innerHTML = '<div class="result bad">解析请求失败：'
+          + escapeHtml(e && e.message ? e.message : String(e)) + '</div>';
+      })
+      .then(function () {
+        if (parseBtn) { parseBtn.disabled = false; parseBtn.textContent = '解析'; }
+      });
+  }
+
+  function nlTextOf() {
+    var t = findEl('nl-text');
+    return t ? t.value : '';
+  }
+
+  function nlRender(draft) {
+    var box = findEl('nl-result');
+    if (!box) return;
+    if (!draft) { box.innerHTML = ''; return; }
+
+    var issues = draft.issues || [];
+    var errs = issues.filter(function (i) { return i.level === 'error'; });
+    var warns = issues.filter(function (i) { return i.level !== 'error'; });
+    var html = '';
+
+    if (errs.length) {
+      html += '<div class="result bad"><b>无法变成可执行策略：</b><ul class="nl-list">'
+        + errs.map(function (i) { return '<li>' + escapeHtml(i.message) + '</li>'; }).join('')
+        + '</ul></div>';
+    }
+    if (warns.length) {
+      html += '<div class="result"><ul class="nl-list">'
+        + warns.map(function (i) { return '<li>' + escapeHtml(i.message) + '</li>'; }).join('')
+        + '</ul></div>';
+    }
+
+    if (draft.executable) {
+      html += '<div class="result ok"><b>执行规则（只读，由参数生成）</b>'
+        + '<div class="nl-rule">' + escapeHtml(draft.ruleText) + '</div></div>';
+
+      var editor = nlEditorHtml(draft);
+      if (editor) html += editor;
+
+      if ((draft.defaults || []).length) {
+        html += '<div class="nl-defaults"><b>系统替你填的默认值（请确认）</b><ul class="nl-list">'
+          + draft.defaults.map(function (d) {
+            return '<li>' + escapeHtml(d.field) + ' = <code>' + escapeHtml(String(d.value))
+              + '</code>　' + escapeHtml(d.why) + '</li>';
+          }).join('')
+          + '</ul><label class="chk"><input type="checkbox" id="nl-ack" /> 我已核对上述默认值</label></div>';
+      }
+    }
+
+    box.innerHTML = html;
+    bindNlEditor();
+  }
+
+  function nlField(label, key, value, hint, step) {
+    return '<div class="field"><label>' + label + '</label>'
+      + '<input type="number" data-nl-key="' + key + '" value="' + escapeHtml(String(value)) + '"'
+      + ' step="' + (step || '1') + '" />'
+      + (hint ? '<span class="field-hint">' + hint + '</span>' : '') + '</div>';
+  }
+
+  function pctOf(v) {
+    return v == null ? '' : String(+(v * 100).toFixed(4));
+  }
+
+  function nlEditorHtml(draft) {
+    var tid = draft.route && draft.route.templateId;
+    var p = draft.cardRequest && draft.cardRequest.params;
+    if (!p) return '';
+    var fields = [];
+
+    if (tid === 'composition') {
+      var c = p.composition;
+      if (c.entry.type === 'maCross') {
+        fields.push(nlField('快线周期（日）', 'fast', c.entry.params.fast, '整数 ≥ 2，且必须小于慢线'));
+        fields.push(nlField('慢线周期（日）', 'slow', c.entry.params.slow, '整数 ≥ 3'));
+      } else {
+        fields.push(nlField('突破回看天数', 'lookback', c.entry.params.lookback, '整数 ≥ 2，窗口不含当日'));
+      }
+      var hold = null, rt = null;
+      (c.exits || []).forEach(function (e) {
+        if (e.type === 'fixedHolding') hold = e;
+        if (e.type === 'returnThreshold') rt = e;
+      });
+      if (hold) fields.push(nlField('固定持有天数', 'days', hold.params.days, '整数 ≥ 1'));
+      if (rt) {
+        fields.push(nlField('止盈（%）', 'takeProfit', pctOf(rt.params.takeProfit), '留空 = 不设止盈', '0.1'));
+        fields.push(nlField('止损（%）', 'stopLoss', pctOf(rt.params.stopLoss), '留空 = 不设止损', '0.1'));
+      }
+    } else if (tid === 'close_buy_open_sell') {
+      fields.push(nlField('开盘跳空阈值（%）', 'holdIfGte', pctOf(p.holdIfGte), '留空 = 不开跳空过滤', '0.1'));
+    } else {
+      fields.push('<p class="field-hint">MACD 参数锁定为 12/26/9（与封版回测一致），不可修改。</p>');
+    }
+
+    if (!fields.length) return '';
+    return '<div class="nl-editor"><b>参数（可改，改完自动重新校验）</b>'
+      + '<div class="nl-editor-grid">' + fields.join('') + '</div></div>';
+  }
+
+  function nlUpdateApplyState() {
+    var btn = findEl('nl-apply');
+    if (!btn) return;
+    var d = nlState.draft;
+    if (!d || !d.executable) { btn.disabled = true; return; }
+    var needAck = (d.defaults || []).length > 0;
+    var ack = findEl('nl-ack');
+    btn.disabled = !(needAck ? (ack && ack.checked) : true);
+  }
+
+  function bindNlEditor() {
+    var ack = findEl('nl-ack');
+    if (ack) ack.addEventListener('change', nlUpdateApplyState);
+    Array.prototype.forEach.call(document.querySelectorAll('[data-nl-key]'), function (input) {
+      input.addEventListener('change', function () {
+        var ov = {};
+        var bad = false;
+        Array.prototype.forEach.call(document.querySelectorAll('[data-nl-key]'), function (n) {
+          var k = n.getAttribute('data-nl-key');
+          var raw = String(n.value).trim();
+          if (raw === '') {
+            // 留空 = 关闭该阈值；其余数值字段留空视为未填，直接不提交改动
+            if (k === 'takeProfit' || k === 'stopLoss' || k === 'holdIfGte') { ov[k] = null; return; }
+            bad = true; return;
+          }
+          var num = Number(raw);
+          if (!isFinite(num)) { bad = true; return; }
+          ov[k] = (k === 'takeProfit' || k === 'stopLoss' || k === 'holdIfGte') ? num / 100 : num;
+        });
+        if (bad) { nlUpdateApplyState(); return; }
+        invalidateNl('你修改了参数');
+        nlParse(ov);
+      });
+    });
+    nlUpdateApplyState();
+  }
+
+  // 确认：把服务端算好的 params 固化成唯一提交来源，并同步模板下拉。
+  function nlApply() {
+    var d = nlState.draft;
+    if (!d || !d.executable || !d.cardRequest) return;
+    nlState.confirmed = {
+      templateId: d.route.templateId,
+      params: JSON.parse(JSON.stringify(d.cardRequest.params)),
+      text: (d.source && d.source.text) || '',
+      ruleText: d.ruleText
+    };
+
+    var sel = findEl('f-template');
+    if (sel && CARD_TEMPLATES[d.route.templateId]) {
+      sel.value = d.route.templateId;
+      renderCardTemplateParams();
+    }
+    if (d.suggestedSymbol) {
+      var sym = findEl('f-symbol');
+      if (sym && !sym.value.trim()) sym.value = d.suggestedSymbol;
+    }
+
+    var st = findEl('nl-status');
+    if (st) {
+      st.className = 'nl-status ok';
+      st.textContent = '已确认：' + d.ruleText + '　（下方模板与参数已按此设置；'
+        + '若手动改动，本确认会失效，需要重新解析）';
+    }
+    var btn = findEl('nl-apply');
+    if (btn) btn.disabled = true;
   }
 
   function buildCsvForm(strategy) {
@@ -717,7 +975,14 @@
       var nmEl = findEl('f-stockname');
       if (nmEl && nmEl.value.trim()) req0.name = nmEl.value.trim();
       var params = {};
-      if (tpl === 'composition') {
+      // 自然语言确认过的参数优先，且只在模板一致时生效：
+      // 确认「组合策略」后又把模板换成 MACD，旧的确认必须失效，不能张冠李戴。
+      var nlParams = (nlState.confirmed && nlState.confirmed.templateId === tpl)
+        ? JSON.parse(JSON.stringify(nlState.confirmed.params))
+        : null;
+      if (nlParams) {
+        params = nlParams;
+      } else if (tpl === 'composition') {
         var entryType = findEl('f-comp-entry').value;
         var exitsPicked = [];
         Array.prototype.forEach.call(document.querySelectorAll('.f-comp-exit'), function (c) {
@@ -736,7 +1001,7 @@
           exits: exitsPicked.map(function (t) { return { type: t, params: exitParams[t] }; })
         };
       }
-      if (tpl === 'close_buy_open_sell') {
+      if (tpl === 'close_buy_open_sell' && !nlParams) {
         var entryEl = findEl('f-entry');
         if (entryEl) params.entrySignal = entryEl.value;
         var holdEl = findEl('f-hold');
