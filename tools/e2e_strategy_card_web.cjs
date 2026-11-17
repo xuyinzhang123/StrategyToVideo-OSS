@@ -22,13 +22,21 @@ const PORT = Number(arg('port', '8123'));
 const KEEP = process.argv.includes('--keep');
 const TMP_TASKS = fs.mkdtempSync(path.join(os.tmpdir(), 'stv-card-e2e-'));
 
+// 故意把结束日期设成「今天」：验证区间会自动收敛到最新已收盘交易日，
+// 而不是因为「今天未收盘 K 线被剔除」直接失败（这是网页表单的默认行为）。
+function isoToday() {
+  const d = new Date();
+  const p = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+
 const payload = {
   strategy: 'strategy_card',
   templateId: 'close_buy_open_sell',
   symbol: '600000',
   name: '浦发银行',
   startDate: '2024-01-02',
-  endDate: '2026-11-16',
+  endDate: isoToday(),
   initialCapital: 100000,
   params: { entrySignal: 'macd_golden', holdIfGte: 0.02 },
 };
@@ -123,6 +131,14 @@ async function main() {
     console.log('  证券        ：', r.symbol, r.name);
     console.log('  模板        ：', r.templateName);
     console.log('  区间        ：', r.period && r.period.start, '→', r.period && r.period.end, `(${r.marketDays} 日)`);
+    if (r.rangeAdjust) {
+      console.log('  区间收敛    ：', r.rangeAdjust.requestedEnd, '→', r.rangeAdjust.effectiveEnd);
+      if (r.rangeAdjust.effectiveEnd !== r.period.end) {
+        throw new Error('区间收敛结果与实际区间终点不一致');
+      }
+    } else if (payload.endDate !== r.period.end) {
+      throw new Error(`请求终点 ${payload.endDate} 未收敛却与实际终点 ${r.period.end} 不同`);
+    }
     console.log('  期末资产    ：', r.final, '收益', (Number(r.totalReturn) * 100).toFixed(2) + '%',
       '回撤', (Number(r.maxDD) * 100).toFixed(2) + '%', '交易', r.trades, '笔');
     console.log('  持有对照    ：', r.holdFinal);

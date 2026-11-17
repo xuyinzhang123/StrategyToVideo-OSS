@@ -841,6 +841,11 @@
           h0 += '<div><b>实际区间</b>：' + r0.period.start + ' → ' + r0.period.end
             + '（' + r0.marketDays + ' 个交易日）</div>';
         }
+        if (r0.rangeAdjust) {
+          h0 += '<div><b>区间收敛</b>：请求终点 ' + escapeHtml(r0.rangeAdjust.requestedEnd)
+            + ' → 实际 ' + escapeHtml(r0.rangeAdjust.effectiveEnd)
+            + '（' + escapeHtml(r0.rangeAdjust.reason) + '）</div>';
+        }
         if (r0.final != null) {
           h0 += '<div><b>期末资产</b>：¥ ' + Number(r0.final).toLocaleString('en-US', { maximumFractionDigits: 2 })
             + ' · 收益 ' + (Number(r0.totalReturn || 0) * 100).toFixed(2) + '%'

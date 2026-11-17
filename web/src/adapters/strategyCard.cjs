@@ -222,9 +222,31 @@ async function execute(ctx) {
   logWrite(`fetch ok: bars=${fetched.model.bars.length} warmup=${fetched.pre} display=${fetched.post} sha=${csvSha.slice(0, 12)}`);
   onStep(1, 'done');
 
+  // ---- 1.5) 区间终点收敛 ----
+  // 表单默认「结束日期 = 今天」，但取数默认剔除今天未收盘的 K 线（DATA_SPEC）：
+  // 若直接拿 card.range.end 去回测，引擎会因「bars 终点早于展示终点」拒绝（E_NO_END）。
+  // 这里按**实际可得的最后交易日**收敛展示终点，并在结果里如实标注被收敛的原因。
+  // 只改副本，任务目录里的 card.json 仍是用户原始输入。
+  let effCard = card;
+  let rangeAdjust = null;
+  {
+    const bars = fetched.model.bars;
+    const lastBar = bars[bars.length - 1];
+    if (lastBar && lastBar.date < card.range.end) {
+      effCard = JSON.parse(JSON.stringify(card));
+      effCard.range.end = lastBar.date;
+      rangeAdjust = {
+        requestedEnd: card.range.end,
+        effectiveEnd: lastBar.date,
+        reason: '请求终点晚于最新已收盘交易日（今天未收盘或休市），按可得行情收敛到最后交易日',
+      };
+      logWrite(`range adjusted: end ${card.range.end} -> ${lastBar.date}（未收盘/休市，不伪造 K 线）`);
+    }
+  }
+
   // ---- 2) 统一门禁已通过，落策略卡与输入 ----
   onStep(2, 'running');
-  fs.writeFileSync(path.join(runDir, '00_card.json'), JSON.stringify(card, null, 2) + '\n', 'utf8');
+  fs.writeFileSync(path.join(runDir, '00_card.json'), JSON.stringify(effCard, null, 2) + '\n', 'utf8');
   fs.writeFileSync(path.join(dataDir, 'source.csv'), csvBuf);
 
   // 溯源核对：按行号回读刚取到的 CSV，逐字段比对 K 线与分红。
@@ -241,7 +263,7 @@ async function execute(ctx) {
   onStep(3, 'running');
   let result;
   try {
-    result = runStrategy(card, { bars: fetched.model.bars, actions: fetched.model.actions || [] });
+    result = runStrategy(effCard, { bars: fetched.model.bars, actions: fetched.model.actions || [] });
   } catch (e) {
     throw { code: e.code || 'E_BACKTEST_FAILED', message: `策略回测失败：${e.message}` };
   }
@@ -300,11 +322,13 @@ async function execute(ctx) {
   const videoBytes = fs.statSync(mp4).size;
 
   const resultPayload = {
-    templateId: card.id,
-    templateName: card.name,
-    symbol: card.symbol,
-    name: card.nameOfSecurity,
+    templateId: effCard.id,
+    templateName: effCard.name,
+    symbol: effCard.symbol,
+    name: effCard.nameOfSecurity,
     period: { start: result.market[0].date, end: result.market[result.market.length - 1].date },
+    requestedRange: { start: card.range.start, end: card.range.end },
+    rangeAdjust,
     initialCapital: result.metrics.initialCapital,
     final: result.metrics.final,
     totalReturn: result.metrics.totalReturn,
@@ -327,6 +351,7 @@ async function execute(ctx) {
       excludedUnclosedDate: fetchMeta.excludedUnclosedDate || null,
       fetchedAt: fetchMeta.fetchedAt || null,
       warnings: fetched.warnings,
+      rangeAdjusted: rangeAdjust,
       note: '东方财富公开日线接口，未复权；分红表由用户提供，未提供则不含现金分红',
     },
     video: {
@@ -347,9 +372,11 @@ async function execute(ctx) {
   };
 
   const strategySpecific = {
-    templateId: card.id,
-    templateName: card.name,
-    card,
+    templateId: effCard.id,
+    templateName: effCard.name,
+    card: effCard,
+    requestedCard: card,
+    rangeAdjust,
     dataArchive: {
       file: 'source.csv',
       sha256: csvSha,
@@ -376,6 +403,7 @@ async function execute(ctx) {
       fetchedAt: fetchMeta.fetchedAt || null,
       kind: 'EASTMONEY_PUSH2HIS',
       adjust: 'none',
+      rangeAdjusted: rangeAdjust,
     },
     dividend: request.dividend || null,
     video: {

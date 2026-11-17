@@ -124,6 +124,9 @@
   - `web/src/adapters/strategyCard.cjs`：6 步执行——校验卡 → 东方财富区间取数（180/365/730 天
     逐级回溯补预热）→ `validateImport` 统一门禁 + 溯源回读 → `runStrategy` → 通用策略渲染 →
     首版 10 项验收。原始 CSV 落到任务目录 `source.csv`，`traceability.json` 逐行可回读。
+  - **区间终点收敛**：表单默认「结束日期 = 今天」，而今天未收盘的 K 线按 DATA_SPEC 被剔除。
+    适配器按**实际可得的最后交易日**收敛展示终点，并在结果/工作区标注「请求 2026-11-17 →
+    实际 2026-11-16」；任务目录 `card.json` 仍保留用户原始输入，`00_card.json` 与结果里是收敛后的卡。
   - `web/src/validation.js` / `taskManager.js` / `engineBridge.js` / `server.js`：新增
     `strategy_card` 策略标识、任务装配（`request.card` + `card.json`）、适配器注册、health 能力自述。
   - 前端 `index.html` / `app.js`：新增「策略回测视频（自动取数）」入口与专用表单
@@ -170,7 +173,7 @@
 | `node tools/render_gold_compare.cjs --run gold_vs_stock_A`（A 类真实对比片） | **出片成功**，720 帧 / 24s，溯源 1220/1220，SHA `f740456d…` |
 | 第二次独立出片 `--run gold_vs_stock_B` | MP4 SHA 逐字节一致（`sha256sum` 核验） |
 | `node tools/check_strategy_card_api.cjs` | **36/36**（校验拒绝 13 类 + 任务装配 + 能力自述 + 预热口径） |
-| `node tools/e2e_strategy_card_web.cjs` | **PASS**：网页创建→执行→出片，10/10 验收、溯源 815/815、MP4 708,939 字节 |
+| `node tools/e2e_strategy_card_web.cjs` | **PASS**：网页创建→执行→出片，10/10 验收、溯源 815/815、MP4 708,939 字节；请求终点=今天时自动收敛到 2026-11-16，指纹与固定终点一致 |
 | `npm run check:api` | **6/6**（health 三处派生字段含 `strategy_card`） |
 | `git diff 5884e0f -- engine_next/lib/ engine_next/render_stock_macd_v122.py engine_next/render_stock_macd_v123.py engine_next/tests/accept_macd_video_v123.py engine_next/backtest_stock_macd.cjs tools/check_*.cjs docs/DATA_SPEC.md docs/samples/ ...` | 空（封版脚本零改动，新增 v124/工具与适配器脚本指向不计） |
 
