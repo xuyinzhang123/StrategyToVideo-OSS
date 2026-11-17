@@ -400,3 +400,42 @@ V0.3 由"开发中"改为已发布；补组合组件、安装第 8 步、策略�
 **跨机视频 SHA 说明**：旧模板卡的本机现场出片视频 SHA/字节数与历史文档记录不同（网页 `0781c5b0…` vs 文档 `1db24925…`；
 CLI `6b49eda0…` vs 文档 `22b17052…`），但 resultSha256 与全部验收项一致、本机两次出片逐字节一致，
 组合卡视频 SHA 亦与历史一致——属编码字节/环境的跨机差异，不影响回测结果与验收，非 P0/P1。
+
+---
+
+## A11. V0.4 阶段 A：自然语言翻译层（分支 `feat/v0.4-nl-layer`，未合并）
+
+**范围**：只做「中文 → 策略卡参数」的翻译层契约与离线解析器；**不改引擎、不改验收体系、不接任何 LLM**。
+配套设计文档：`docs/dev/V04_NL_TRANSLATION_DESIGN.md`。
+
+**新增文件（三个，均为纯函数，零第三方依赖）**
+
+- `engine_next/strategy_nl.cjs`：受控词表匹配 + 路由 + `stv.nl-draft/0.1` 产物 + `describeDraft()` 规则串。
+- `engine_next/tests/verify_nl_parser.cjs`：24 项验收。
+- `docs/dev/V04_NL_TRANSLATION_DESIGN.md`：契约与阶段划分。
+- `package.json` 增加 `check:nl` 脚本；其余文件零改动。
+
+**三道门禁（顺序不可交换）**：受控词表 → `normalizeParams`（既有前端白名单，原样调用）→
+`buildConditions`（既有引擎参数校验，传空行情数组只跑参数段，原样调用）。翻译层不复刻校验逻辑，
+保证「翻译层能过的，引擎一定也能过」。
+
+**两条不可让渡的规则**：参数可填默认值但必须列进 `defaults` 并在确认页展示；
+条件不可补全——没说出场就报 `E_NO_EXIT`，只提止盈就不补止损（`stopLoss=null`），
+没指明标的就报 `E_AMBIGUOUS_ROUTE`（均线金叉 vs MACD 金叉语义不同）。
+
+**本轮实测发现（重要，供阶段 B 参考）**：`normalizeParams('close_buy_open_sell', …)` 会补
+`entryFill` / `exitFill`，而 `buildCard` 不接受这两个键（它按模板自己补）——即该函数对老模板
+**不幂等**。因此 `params`（卡片最终参数）与 `cardRequest.params`（重建卡片的最小请求参数）
+在老模板上必须不同；最初把 `params` 原样喂回 `buildCard` 时验收第 19/20 项直接失败，
+已按此修正并写进设计文档。`composition` / `macd_cross` 两个模板两者同一份对象。
+
+**验收**：`node engine_next/tests/verify_nl_parser.cjs` → **24/24**。
+其中第 19/20 项不是结构断言，而是把每条可执行产物真的经 `buildCard` 组装成卡、再 `runStrategy`
+跑完回测并校验逐日资产恒等式；第 21 项反向验证非白名单组件在 `normalizeParams` / `buildCard` /
+`buildConditions` 三处均被拒绝。
+
+**回归（本机，2026-11-17）**：引擎 27/27、组合 10/10、策略卡接口 36/36、`check:api` 6/6、
+`check:samples` 30/30；`git diff main` 对 `strategy_conditions.cjs`、`strategy_runner_composed.cjs`、
+`strategy_engine.cjs`、v122/v123 渲染器、`accept_strategy_video.py`、`docs/DATA_SPEC.md` 全为空。
+
+**未做（阶段 B/C）**：网页确认界面、LLM 适配器、把翻译结果接入 `buildCard` 的实际请求链。
