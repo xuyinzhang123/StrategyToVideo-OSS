@@ -21,6 +21,7 @@ output/probe_*/
 
 # 策略卡直出片产物（含真实行情与回测结果，不随包分发）
 output/strategy_*/
+output/composition_*/
 
 # 真实行情数据出片产物（含真实 OHLC / 归一化数据点，不随包分发）
 output/*/01_data/
