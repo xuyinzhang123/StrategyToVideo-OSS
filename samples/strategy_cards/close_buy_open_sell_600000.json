@@ -1,0 +1,33 @@
+{
+  "schemaVersion": "1.0",
+  "id": "close_buy_open_sell",
+  "name": "尾盘买入 · 次日开盘卖出",
+  "symbol": "600000",
+  "nameOfSecurity": "浦发银行",
+  "range": {
+    "start": "2024-01-02",
+    "end": "2026-11-16",
+    "warmupBars": 60,
+    "warmupMode": "prepend"
+  },
+  "data": {
+    "adjust": "none",
+    "dividendPolicy": "ignored",
+    "source": "eastmoney-push2his"
+  },
+  "params": {
+    "entrySignal": "macd_golden",
+    "entryFill": "sameClose",
+    "exitFill": "nextOpen",
+    "auctionFilter": {
+      "basis": "open_gap_pct",
+      "holdIfGte": 0.02,
+      "else": "sellAtOpen"
+    }
+  },
+  "execution": {
+    "initialCapital": 100000,
+    "lotSize": 100,
+    "sealedLimitBlocks": true
+  }
+}

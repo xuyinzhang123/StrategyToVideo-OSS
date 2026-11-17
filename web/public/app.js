@@ -35,6 +35,12 @@
 
   // 各策略表单元数据（默认值来自已验证 sealed 配置）
   var META = {
+    strategy_card: {
+      name: '策略回测视频（自动取数）',
+      cardMode: true,
+      executable: true,
+      badge: '策略卡 · 自动取数 · 无需 CSV'
+    },
     ratio_band: {
       name: '本版未开放（框架占位）',
       symbols: '本版未开放 · 开源 V0.1 仅提供 MACD 模拟演示，不含任何真实行情标的',
@@ -109,6 +115,37 @@
     ]
   };
 
+  // 策略卡模板（与 web/src/strategyCard.js 的 TEMPLATES 同源；前端只用于展示与表单）
+  var CARD_TEMPLATES = {
+    close_buy_open_sell: {
+      name: '尾盘买入 · 次日开盘卖出',
+      desc: 'MACD 金叉当日收盘买入，次日开盘卖出；可选集合竞价跳空过滤（开盘涨幅达到阈值则继续持有）'
+    },
+    macd_cross: {
+      name: 'MACD 金叉买入 · 死叉卖出',
+      desc: 'MACD(12,26,9) 金叉次日开盘买入、死叉次日开盘卖出，并与长期持有对照'
+    },
+    composition: {
+      name: '组合策略 · 入场/退出可配置',
+      desc: '一个入场 + 多个退出（OR），信号收盘确认、下一交易日开盘成交'
+    }
+  };
+
+  function isoToday() {
+    var d = new Date();
+    var m = String(d.getMonth() + 1);
+    var day = String(d.getDate());
+    return d.getFullYear() + '-' + (m.length < 2 ? '0' + m : m) + '-' + (day.length < 2 ? '0' + day : day);
+  }
+
+  function isoYearsAgo(years) {
+    var d = new Date();
+    d.setFullYear(d.getFullYear() - years);
+    var m = String(d.getMonth() + 1);
+    var day = String(d.getDate());
+    return d.getFullYear() + '-' + (m.length < 2 ? '0' + m : m) + '-' + (day.length < 2 ? '0' + day : day);
+  }
+
   function escapeHtml(s) {
     return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
       return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
@@ -156,6 +193,7 @@
   function buildForm(strategy) {
     var m = META[strategy];
     if (m.userCsv) { buildCsvForm(strategy); return; }
+    if (m.cardMode) { buildCardForm(strategy); return; }
     if (paramsBadge) paramsBadge.textContent = 'Open Source V0.1 · 仅 MACD 演示 · 参数锁定';
     var locked = !!m.locked;
     paramsForm.innerHTML = '';
@@ -215,6 +253,112 @@
       '<input type="text" value="1920×1080 @ 30fps（固定）" disabled /></div>'));
 
     createBtn.disabled = false;
+  }
+
+  // 策略卡表单：用户只需要「代码 + 区间 + 模板」，数据由后端自动取。
+  // 前端只做「一眼就知道不完整」的拦截（代码位数、日期顺序、资金下限），
+  // 主板/参数/门禁的真实校验一律在服务端（strategyCard.buildCard + validateImport）。
+  function buildCardForm(strategy) {
+    var m = META[strategy];
+    csvState = { text: null, name: '', headers: [], encodingBad: false };
+    divState = { text: null, name: '' };
+    if (paramsBadge) paramsBadge.textContent = m.badge;
+    paramsForm.innerHTML = '';
+    paramsForm.appendChild(el(
+      '<p class="field-note">填好证券与区间，执行时自动从东方财富取<b>未复权</b>日线并回测出片，不需要你准备 CSV。'
+      + '本版只支持沪深主板；不提供分红表时，视频会明确标注「不含现金分红」。</p>'
+    ));
+
+    paramsForm.appendChild(els(
+      '<div class="field"><label>证券代码（必填 · 6 位）</label>' +
+      '<input type="text" id="f-symbol" maxlength="6" inputmode="numeric" autocomplete="off" placeholder="例如 600000" />' +
+      '<span class="field-hint">仅沪深主板：600/601/603/605、000/001/002/003。创业板 300/301、科创板 688、北交所与 B 股会直接报错。</span></div>' +
+      '<div class="field"><label>证券名称（可空）</label>' +
+      '<input type="text" id="f-stockname" maxlength="40" placeholder="例如 浦发银行" /></div>'
+    ));
+
+    var opts = Object.keys(CARD_TEMPLATES).map(function (k) {
+      return '<option value="' + k + '">' + escapeHtml(CARD_TEMPLATES[k].name) + '</option>';
+    }).join('');
+    paramsForm.appendChild(el(
+      '<div class="field field-wide"><label>策略模板</label>' +
+      '<select id="f-template">' + opts + '</select>' +
+      '<span class="field-hint" id="f-template-desc"></span></div>'
+    ));
+
+    paramsForm.appendChild(els(
+      '<div class="field"><label>开始日期</label>' +
+      '<input type="date" id="f-start" value="' + isoYearsAgo(2) + '" /></div>' +
+      '<div class="field"><label>结束日期</label>' +
+      '<input type="date" id="f-end" value="' + isoToday() + '" /></div>'
+    ));
+
+    paramsForm.appendChild(el(
+      '<div class="field"><label>初始资金（元）</label>' +
+      '<input type="number" id="f-capital" value="100000" min="10000" step="10000" />' +
+      '<span class="field-hint">10000 ~ 100000000；按 100 股整数倍下单，含佣金、印花税、过户费。</span></div>'
+    ));
+
+    paramsForm.appendChild(el('<div id="tpl-params"></div>'));
+
+    paramsForm.appendChild(el(
+      '<div class="field field-wide"><label>分红表（可空）</label>' +
+      '<div class="file-row"><input type="file" id="f-div" accept=".csv,text/csv,text/plain" /></div>' +
+      '<span class="field-hint">列：ex_date,record_date,pay_date,cash_per_share[,share_ratio,plan]。'
+      + '三个日期不可缺省也不可推导；不传则除权跳空按普通下跌处理并在视频里标注。</span></div>'
+    ));
+
+    findEl('f-div').addEventListener('change', onDividendChosen);
+    findEl('f-template').addEventListener('change', renderCardTemplateParams);
+    renderCardTemplateParams();
+    createBtn.disabled = false;
+    hint.textContent = '已选择：' + m.name + '。填代码与区间即可创建任务。';
+  }
+
+  // 模板参数区随模板切换重绘：不把两套参数混在一张表单里，避免提交无用字段。
+  function renderCardTemplateParams() {
+    var box = findEl('tpl-params');
+    if (!box) return;
+    var tpl = findEl('f-template').value;
+    var desc = findEl('f-template-desc');
+    if (desc) desc.textContent = CARD_TEMPLATES[tpl].desc;
+    if (tpl === 'composition') {
+      box.innerHTML = '';
+      box.appendChild(els(
+        '<div class="field"><label>入场条件</label>' +
+        '<select id="f-comp-entry">' +
+        '<option value="maCross" selected>MA 均线金叉（5 / 20 日 SMA）</option>' +
+        '<option value="breakout">区间突破（收盘价 &gt; 前 20 日最高价）</option>' +
+        '</select>' +
+        '<span class="field-hint">信号当日收盘确认，下一交易日开盘买入。</span></div>' +
+        '<div class="field field-wide"><label>退出条件（可多选，任一触发即卖出）</label>' +
+        '<label class="chk"><input type="checkbox" class="f-comp-exit" value="fixedHolding" checked /> 固定持有 5 个交易日</label>' +
+        '<label class="chk"><input type="checkbox" class="f-comp-exit" value="returnThreshold" /> 止盈 10% / 止损 5%</label>' +
+        '<label class="chk"><input type="checkbox" class="f-comp-exit" value="maCross" /> MA 死叉（5 / 20 日）</label>' +
+        '<span class="field-hint">多个条件同时触发只成交一次，视频会列出全部触发原因；'
+        + '卖出同样在信号次日开盘成交。</span></div>' +
+        '<div class="field field-wide"><label>最终策略规则</label>' +
+        '<div id="f-comp-summary" class="result"></div></div>'
+      ));
+      var updateSummary = function () {
+        var sum = findEl('f-comp-summary');
+        if (!sum) return;
+        var e = findEl('f-comp-entry');
+        var picked = [];
+        Array.prototype.forEach.call(document.querySelectorAll('.f-comp-exit'), function (c) {
+          if (c.checked) picked.push(c.value);
+        });
+        sum.textContent = '入场：' + (e && e.value === 'breakout' ? '前20日高点突破' : 'MA5/20 金叉')
+          + '  →  退出（OR）：' + (picked.length ? picked.join(' / ') : '未选择（不合法）');
+      };
+      Array.prototype.forEach.call(document.querySelectorAll('.f-comp-entry, .f-comp-exit'), function (node) {
+        node.addEventListener('change', updateSummary);
+      });
+      updateSummary();
+    } else if (tpl === 'close_buy_open_sell') {
+      box.innerHTML = '<div class="field"><label>MACD 参数</label>'
+        + '<input type="text" value="12 / 26 / 9（已锁定）" disabled /></div>';
+    }
   }
 
   function findEl(id) {
@@ -551,6 +695,61 @@
 
   function collectRequest() {
     var m = META[selected];
+    if (m && m.cardMode) {
+      var symEl0 = findEl('f-symbol');
+      var symbol = String(symEl0 && symEl0.value || '').trim();
+      if (!/^\d{6}$/.test(symbol)) throw new Error('请填写 6 位证券代码');
+      var tpl = findEl('f-template').value;
+      var start = findEl('f-start').value;
+      var end = findEl('f-end').value;
+      if (!start || !end) throw new Error('请填写开始与结束日期');
+      if (start >= end) throw new Error('开始日期必须早于结束日期');
+      var cap = Number(findEl('f-capital').value);
+      if (!isFinite(cap) || cap < 10000) throw new Error('初始资金需不少于 10000 元');
+      var req0 = {
+        strategy: 'strategy_card',
+        templateId: tpl,
+        symbol: symbol,
+        startDate: start,
+        endDate: end,
+        initialCapital: cap
+      };
+      var nmEl = findEl('f-stockname');
+      if (nmEl && nmEl.value.trim()) req0.name = nmEl.value.trim();
+      var params = {};
+      if (tpl === 'composition') {
+        var entryType = findEl('f-comp-entry').value;
+        var exitsPicked = [];
+        Array.prototype.forEach.call(document.querySelectorAll('.f-comp-exit'), function (c) {
+          if (c.checked) exitsPicked.push(c.value);
+        });
+        if (!exitsPicked.length) throw new Error('请至少选择一个退出条件');
+        var entryParams = entryType === 'breakout' ? { lookback: 20 } : { fast: 5, slow: 20, maType: 'SMA' };
+        var exitParams = {
+          fixedHolding: { days: 5 },
+          returnThreshold: { takeProfit: 0.1, stopLoss: 0.05 },
+          maCross: { fast: 5, slow: 20, maType: 'SMA' }
+        };
+        params.composition = {
+          schema: 'stv.composition/0.1',
+          entry: { type: entryType, params: entryParams },
+          exits: exitsPicked.map(function (t) { return { type: t, params: exitParams[t] }; })
+        };
+      }
+      if (tpl === 'close_buy_open_sell') {
+        var entryEl = findEl('f-entry');
+        if (entryEl) params.entrySignal = entryEl.value;
+        var holdEl = findEl('f-hold');
+        if (holdEl && String(holdEl.value).trim() !== '') {
+          var hv = Number(holdEl.value);
+          if (!isFinite(hv) || hv < 0 || hv > 20) throw new Error('开盘跳空阈值需在 0 ~ 20% 之间');
+          params.holdIfGte = hv / 100;
+        }
+      }
+      if (Object.keys(params).length) req0.params = params;
+      if (divState.text) req0.dividendCsvText = divState.text;
+      return req0;
+    }
     if (m && m.userCsv) {
       if (csvState.encodingBad) throw new Error('文件编码不是 UTF-8，请先另存为 UTF-8 再选择');
       if (!csvState.text) throw new Error('请先选择 CSV 文件');
@@ -669,7 +868,73 @@
     var m = META[task.strategy] || { name: task.strategy, executable: false };
     wsBadge.textContent = task.status;
 
-    if (task.dataClass) {
+    if (task.strategy === 'strategy_card') {
+      var r0 = task.result || null;
+      var h0 = '<div><b>任务 ID</b>：' + task.taskId + '</div>'
+        + '<div><b>策略模板</b>：' + escapeHtml(task.templateName || task.templateId || '') + '</div>'
+        + '<div><b>证券</b>：' + escapeHtml(task.name || '') + '（' + escapeHtml(task.symbol || '') + '）</div>'
+        + '<div><b>区间</b>：' + escapeHtml(task.startDate || '') + ' → ' + escapeHtml(task.endDate || '') + '</div>'
+        + '<div><b>初始资金</b>：¥ ' + Number(task.initialCapital || 0).toLocaleString('en-US') + '</div>'
+        + '<div><b>状态</b>：' + task.status + '</div>';
+      if (task.dividend) {
+        h0 += '<div><b>分红表</b>：已提供 · sha256:' + String(task.dividend.sha256 || '').slice(0, 12) + '…</div>';
+      }
+      if (r0) {
+        if (r0.period) {
+          h0 += '<div><b>实际区间</b>：' + r0.period.start + ' → ' + r0.period.end
+            + '（' + r0.marketDays + ' 个交易日）</div>';
+        }
+        if (r0.rangeAdjust) {
+          h0 += '<div><b>区间收敛</b>：请求终点 ' + escapeHtml(r0.rangeAdjust.requestedEnd)
+            + ' → 实际 ' + escapeHtml(r0.rangeAdjust.effectiveEnd)
+            + '（' + escapeHtml(r0.rangeAdjust.reason) + '）</div>';
+        }
+        if (r0.final != null) {
+          h0 += '<div><b>期末资产</b>：¥ ' + Number(r0.final).toLocaleString('en-US', { maximumFractionDigits: 2 })
+            + ' · 收益 ' + (Number(r0.totalReturn || 0) * 100).toFixed(2) + '%'
+            + ' · 最大回撤 ' + (Number(r0.maxDD || 0) * 100).toFixed(2) + '%'
+            + ' · ' + r0.trades + ' 笔交易</div>';
+        }
+        if (r0.holdFinal != null) {
+          h0 += '<div><b>同期长期持有</b>：¥ ' + Number(r0.holdFinal).toLocaleString('en-US', { maximumFractionDigits: 2 }) + '</div>';
+        }
+        if (r0.source) {
+          h0 += '<div><b>数据</b>：' + (r0.source.kind === 'EASTMONEY_PUSH2HIS' ? '东方财富未复权日线' : escapeHtml(r0.source.kind || ''))
+            + ' · 取数 ' + r0.source.fetchStart + ' → ' + r0.source.fetchEnd
+            + ' · ' + r0.source.bars + ' 根（预热 ' + r0.source.warmupBars + ' / 展示 ' + r0.source.displayBars + '）'
+            + ' · csv sha256:' + String(r0.source.csvSha256 || '').slice(0, 12) + '…</div>';
+          if (r0.source.excludedUnclosedDate) {
+            h0 += '<div><b>已剔除未收盘日</b>：' + r0.source.excludedUnclosedDate + '</div>';
+          }
+          if (r0.source.warnings && r0.source.warnings.length) {
+            h0 += '<div><b>数据提示</b>：' + r0.source.warnings.map(function (w) {
+              return escapeHtml(w.message);
+            }).join('；') + '</div>';
+          }
+        }
+        if (r0.video) {
+          h0 += '<div><b>视频</b>：' + r0.video.width + '×' + r0.video.height + ' @ ' + r0.video.fps
+            + 'fps · ' + r0.video.durationSec + 's · ' + r0.video.frames + ' 帧</div>';
+          if (r0.video.sha256) {
+            h0 += '<div><b>视频指纹</b>：sha256:' + r0.video.sha256.slice(0, 12)
+              + '…（同一份数据重复出片应完全一致）</div>';
+          }
+        }
+        if (r0.verification && r0.verification.pass != null) {
+          h0 += '<div><b>独立验收</b>：' + escapeHtml(r0.verification.script || '')
+            + ' · PASS ' + r0.verification.pass + ' / ' + r0.verification.total + '</div>';
+        }
+        if (r0.trace) {
+          h0 += '<div><b>溯源</b>：' + r0.trace.verified + ' / ' + r0.trace.points
+            + ' 个数据点已回读核对到留档 CSV 的具体行号</div>';
+        }
+      }
+      if (task.status === 'success') {
+        h0 += '<div><b>留档</b>：<a href="/api/tasks/' + encodeURIComponent(task.taskId)
+          + '/source">下载本次实际使用的日线 CSV</a></div>';
+      }
+      wsSummary.innerHTML = h0;
+    } else if (task.dataClass) {
       // 用户 CSV：没有本金/区间，展示数据类别、标题、来源文件指纹、行数与数据提示
       var clsNames = { timeseries: '通用时间序列', cross_section: '横向对比', stock_ohlc: '股票日线（USER_IMPORT）' };
       var clsName = clsNames[task.dataClass] || task.dataClass;
@@ -837,7 +1102,9 @@
   function renderTrace(task) {
     wsTrace.hidden = true;
     wsTrace.innerHTML = '';
-    if (task.status !== 'success' || !task.dataClass) return;
+    // 策略卡任务同样有留档 CSV 与逐行溯源，只是没有 dataClass 字段
+    if (task.status !== 'success') return;
+    if (!task.dataClass && task.strategy !== 'strategy_card') return;
     fetch('/api/tasks/' + encodeURIComponent(task.taskId) + '/traceability')
       .then(function (r) { return r.json(); })
       .then(function (body) {

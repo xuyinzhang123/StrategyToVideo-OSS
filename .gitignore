@@ -5,6 +5,11 @@ __pycache__/
 
 # 按 requirements.txt 安装后生成的依赖目录（由用户在本机生成，不随包分发）
 deps/
+deps-datafeed/
+
+# 数据接口层真实抓取产物（含行情数据，不随包分发）
+datafeed/out/
+output/probe_datafeed/
 
 # 网页任务状态与产物（示例 run 与模拟数据保留，随包提供）
 web/tasks/
@@ -13,6 +18,16 @@ output/*/04_video/frames/
 output/*/02_backtest_macd/
 output/*/04_video/
 output/probe_*/
+
+# 策略卡直出片产物（含真实行情与回测结果，不随包分发）
+output/strategy_*/
+output/composition_*/
+
+# 真实行情数据出片产物（含真实 OHLC / 归一化数据点，不随包分发）
+output/*/01_data/
+output/*/01_input/
+output/_work_*/
+output/v03_story/
 
 # 系统文件
 .DS_Store

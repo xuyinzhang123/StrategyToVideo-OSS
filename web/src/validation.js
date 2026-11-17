@@ -25,8 +25,11 @@
 //   macd         : agent/unified/registry.cjs stock_overnight sealed {start:2016-01-04,end:2026-11-06}; 代码 601398
 
 const { validateImport } = require('./import/validate');
+const strategyCard = require('./strategyCard');
 
-const STRATEGY_IDS = ['macd', 'timeseries', 'cross_section', 'stock_ohlc'];
+// strategy_card：V0.2 之后的「自动取数」通道——用户只给代码/区间/模板，
+// 由后端取东方财富未复权日线后走统一回测与出片（不需要用户准备 CSV）。
+const STRATEGY_IDS = ['macd', 'timeseries', 'cross_section', 'stock_ohlc', 'strategy_card'];
 
 // 用户 CSV 通道（V0.2）：A/B 两类 + C 类股票日线。
 // C 类门禁（DATA_SPEC §7.1）已通过：G-1 qfq 无二次调整、G-4 amount 无下游依赖。
@@ -285,6 +288,44 @@ function validateUserCsvRequest(body, dataClass) {
   };
 }
 
+// 策略卡通道：把「模板 + 代码 + 区间 + 少量参数」装配成标准策略卡。
+// 所有业务校验（模板白名单、主板、日期、资金、参数）在 strategyCard.buildCard 内完成，
+// 这里只负责字段白名单与把结果映射成任务层需要的 normalized 结构。
+function validateStrategyCardRequest(body) {
+  for (const k of Object.keys(body)) {
+    if (!STRATEGY_CARD_ALLOWED_FIELDS.has(k)) {
+      return { ok: false, code: 'E_UNKNOWN_FIELD', message: `策略卡通道不支持的字段：${k}` };
+    }
+  }
+  const r = strategyCard.buildCard(body);
+  if (!r.ok) return r;
+  const v = r.value;
+  return {
+    ok: true,
+    value: {
+      strategy: 'strategy_card',
+      templateId: v.templateId,
+      templateName: v.templateName,
+      card: v.card,
+      // 标题用于工作区摘要；不含任何路径或用户可控输出位置
+      title: `${v.card.nameOfSecurity} · ${v.templateName}`,
+      startDate: v.card.range.start,
+      endDate: v.card.range.end,
+      initialCapital: v.card.execution.initialCapital,
+      // 可选分红表原文：由 taskManager 留档为 dividend.csv
+      dividendSourceText: v.dividendSourceText,
+      mode: 'plan-only',
+    },
+  };
+}
+
+// 策略卡通道（自动取数）允许的字段。策略卡本身由 strategyCard.buildCard 装配，
+// 不接受客户端直接投递任意 card 对象——避免 additionalProperties 漏网后进入引擎。
+const STRATEGY_CARD_ALLOWED_FIELDS = new Set([
+  'strategy', 'templateId', 'symbol', 'name', 'startDate', 'endDate',
+  'initialCapital', 'params', 'dividendCsvText',
+]);
+
 // 主入口：返回 { ok:true, value:{...normalized} } 或 { ok:false, code, message }
 function validateTaskRequest(body) {
   if (!isPlainObject(body)) {
@@ -323,6 +364,11 @@ function validateTaskRequest(body) {
       code: 'E_STRATEGY_UNSUPPORTED',
       message: `不支持的策略：${String(strategy)}（可选：${STRATEGY_IDS.join(' / ')}）`,
     };
+  }
+
+  // 4.0) 策略卡通道（自动取数）：字段白名单 + 卡片装配
+  if (strategy === 'strategy_card') {
+    return validateStrategyCardRequest(body);
   }
 
   // 4.1) 用户 CSV 通道：字段白名单与契约校验都在 validateUserCsvRequest 内完成
@@ -446,5 +492,6 @@ module.exports = {
   FORBIDDEN_FIELDS,
   parseDateStrict,
   validateUserCsvRequest,
+  validateStrategyCardRequest,
   validateTaskRequest,
 };

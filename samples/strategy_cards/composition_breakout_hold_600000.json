@@ -1,0 +1,43 @@
+{
+  "schemaVersion": "1.0",
+  "id": "close_buy_open_sell",
+  "name": "组合策略 · breakout hold 600000",
+  "symbol": "600000",
+  "nameOfSecurity": "600000",
+  "range": {
+    "start": "2024-02-01",
+    "end": "2024-12-30",
+    "warmupBars": 30,
+    "warmupMode": "prepend"
+  },
+  "data": {
+    "adjust": "none",
+    "dividendPolicy": "ignored",
+    "source": "docs/samples/stock_ohlc.csv (SIMULATED)"
+  },
+  "params": {
+    "composition": {
+      "schema": "stv.composition/0.1",
+      "entry": {
+        "type": "breakout",
+        "params": {
+          "lookback": 20
+        }
+      },
+      "exits": [
+        {
+          "type": "fixedHolding",
+          "params": {
+            "days": 5
+          }
+        }
+      ]
+    }
+  },
+  "execution": {
+    "initialCapital": 100000,
+    "lotSize": 100,
+    "sealedLimitBlocks": true
+  },
+  "benchmark": "hold"
+}

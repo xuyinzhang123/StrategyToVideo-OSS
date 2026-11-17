@@ -22,6 +22,11 @@
     <section class="panel">
       <h2>选择策略 / 数据类别</h2>
       <div class="strategy-grid">
+        <button class="strategy-card" data-strategy="strategy_card" type="button">
+          <span class="strategy-name">策略回测视频（自动取数）</span>
+          <span class="strategy-desc">填证券代码 + 区间 + 策略模板，自动拉未复权日线 → 回测 → 出片，不需要准备 CSV</span>
+          <span class="strategy-tag tag-live">可生成视频</span>
+        </button>
         <button class="strategy-card" data-strategy="macd" type="button">
           <span class="strategy-name">MACD 演示策略（模拟数据）</span>
           <span class="strategy-desc">SIMULATED 模拟行情 · 长期持有 vs MACD 金叉死叉（视频 V1.2.2）</span>
@@ -86,7 +91,7 @@
   </main>
 
   <footer class="site-footer">
-    <span>Open Source V0.1 + V0.2 预览 · 本地 127.0.0.1 · MACD 演示（SIMULATED 模拟数据）与用户 CSV（时间序列 / 横向对比 / 股票日线 USER_IMPORT）· 失败任务请新建任务重试</span>
+    <span>Open Source V0.1 + V0.2 预览 · 本地 127.0.0.1 · MACD 演示（SIMULATED 模拟数据）· 用户 CSV（时间序列 / 横向对比 / 股票日线 USER_IMPORT）· 策略卡自动取数（沪深主板 · 未复权）· 失败任务请新建任务重试</span>
   </footer>
 
   <script src="/app.js"></script>
