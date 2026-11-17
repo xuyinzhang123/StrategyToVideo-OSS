@@ -42,6 +42,34 @@
         "slow": { "type": "integer", "minimum": 3 },
         "signal": { "type": "integer", "minimum": 2 },
         "entrySignal": { "enum": ["macd_golden"] },
+        "composition": {
+          "type": "object",
+          "description": "V0.3 可组合策略，仅 close_buy_open_sell 模板使用；旧卡无此字段",
+          "additionalProperties": false,
+          "required": ["schema", "entry", "exits"],
+          "properties": {
+            "schema": { "const": "stv.composition/0.1" },
+            "entry": {
+              "type": "object", "additionalProperties": false,
+              "required": ["type"],
+              "properties": {
+                "type": { "enum": ["maCross", "breakout"] },
+                "params": { "type": "object" }
+              }
+            },
+            "exits": {
+              "type": "array", "minItems": 1, "maxItems": 3,
+              "items": {
+                "type": "object", "additionalProperties": false,
+                "required": ["type"],
+                "properties": {
+                  "type": { "enum": ["maCross", "fixedHolding", "returnThreshold"] },
+                  "params": { "type": "object" }
+                }
+              }
+            }
+          }
+        },
         "entryFill": { "enum": ["sameClose", "nextOpen"] },
         "exitFill": { "enum": ["sameClose", "nextOpen"] },
         "auctionFilter": {

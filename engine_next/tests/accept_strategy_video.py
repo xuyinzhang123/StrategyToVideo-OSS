@@ -103,14 +103,20 @@ def main():
     ck("trades 成交日期严格递增", all(a < b for a, b in zip(td, td[1:])),
        "dup/逆序 in {}".format(td[:8]))
 
-    # 成交价必须来自行情：买入=当日 close（尾盘 14:57 口径），卖出=当日 open（9:25 口径）
-    bad_buy = [(t["date"], t["price"], bar_by_date[t["date"]]["close"])
+    # 成交价必须来自行情。两种口径各自严格断言，不删项、不放宽阈值：
+    #   旧 close_buy_open_sell：买入=当日 close（尾盘 14:57）
+    #   V0.3 组合模式：信号收盘确认，买入=下一交易日 open（nextOpen）
+    # 卖出在两种模式下都是当日 open（9:25 次日开盘口径）。
+    composed = bool((result.get("state") or {}).get("compositionMode"))
+    buy_field = "open" if composed else "close"
+    buy_label = "次开盘 open（组合模式 nextOpen）" if composed else "当日 close（尾盘口径）"
+    bad_buy = [(t["date"], t["price"], bar_by_date[t["date"]][buy_field])
                for t in trades if t["side"] == "BUY" and t["date"] in bar_by_date
-               and abs(t["price"] - bar_by_date[t["date"]]["close"]) > EPS_PRICE]
+               and abs(t["price"] - bar_by_date[t["date"]][buy_field]) > EPS_PRICE]
     bad_sell = [(t["date"], t["price"], bar_by_date[t["date"]]["open"])
                 for t in trades if t["side"] == "SELL" and t["date"] in bar_by_date
                 and abs(t["price"] - bar_by_date[t["date"]]["open"]) > EPS_PRICE]
-    ck("买入价 = 当日 close（尾盘口径）", not bad_buy, "偏差 {}".format(bad_buy[:3]))
+    ck("买入价 = " + buy_label, not bad_buy, "偏差 {}".format(bad_buy[:3]))
     ck("卖出价 = 当日 open（次日开盘口径）", not bad_sell, "偏差 {}".format(bad_sell[:3]))
 
     bad_amt = [(t["date"], t["amount"], round(t["price"] * t["shares"], 2))

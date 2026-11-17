@@ -124,6 +124,10 @@
     macd_cross: {
       name: 'MACD 金叉买入 · 死叉卖出',
       desc: 'MACD(12,26,9) 金叉次日开盘买入、死叉次日开盘卖出，并与长期持有对照'
+    },
+    composition: {
+      name: '组合策略 · 入场/退出可配置',
+      desc: '一个入场 + 多个退出（OR），信号收盘确认、下一交易日开盘成交'
     }
   };
 
@@ -318,20 +322,40 @@
     var tpl = findEl('f-template').value;
     var desc = findEl('f-template-desc');
     if (desc) desc.textContent = CARD_TEMPLATES[tpl].desc;
-    if (tpl === 'close_buy_open_sell') {
+    if (tpl === 'composition') {
       box.innerHTML = '';
       box.appendChild(els(
-        '<div class="field"><label>入场信号</label>' +
-        '<select id="f-entry">' +
-        '<option value="macd_golden" selected>MACD 金叉当日收盘买入</option>' +
-        '<option value="always">每个交易日收盘买入（对照用）</option>' +
-        '</select></div>' +
-        '<div class="field"><label>开盘跳空持仓阈值（%）</label>' +
-        '<input type="number" id="f-hold" min="0" max="20" step="0.1" value="2" />' +
-        '<span class="field-hint">次日开盘涨幅 ≥ 阈值时继续持有，否则开盘卖出'
-        + '（9:25 集合竞价结果即当日开盘价）。</span></div>'
+        '<div class="field"><label>入场条件</label>' +
+        '<select id="f-comp-entry">' +
+        '<option value="maCross" selected>MA 均线金叉（5 / 20 日 SMA）</option>' +
+        '<option value="breakout">区间突破（收盘价 &gt; 前 20 日最高价）</option>' +
+        '</select>' +
+        '<span class="field-hint">信号当日收盘确认，下一交易日开盘买入。</span></div>' +
+        '<div class="field field-wide"><label>退出条件（可多选，任一触发即卖出）</label>' +
+        '<label class="chk"><input type="checkbox" class="f-comp-exit" value="fixedHolding" checked /> 固定持有 5 个交易日</label>' +
+        '<label class="chk"><input type="checkbox" class="f-comp-exit" value="returnThreshold" /> 止盈 10% / 止损 5%</label>' +
+        '<label class="chk"><input type="checkbox" class="f-comp-exit" value="maCross" /> MA 死叉（5 / 20 日）</label>' +
+        '<span class="field-hint">多个条件同时触发只成交一次，视频会列出全部触发原因；'
+        + '卖出同样在信号次日开盘成交。</span></div>' +
+        '<div class="field field-wide"><label>最终策略规则</label>' +
+        '<div id="f-comp-summary" class="result"></div></div>'
       ));
-    } else {
+      var updateSummary = function () {
+        var sum = findEl('f-comp-summary');
+        if (!sum) return;
+        var e = findEl('f-comp-entry');
+        var picked = [];
+        Array.prototype.forEach.call(document.querySelectorAll('.f-comp-exit'), function (c) {
+          if (c.checked) picked.push(c.value);
+        });
+        sum.textContent = '入场：' + (e && e.value === 'breakout' ? '前20日高点突破' : 'MA5/20 金叉')
+          + '  →  退出（OR）：' + (picked.length ? picked.join(' / ') : '未选择（不合法）');
+      };
+      Array.prototype.forEach.call(document.querySelectorAll('.f-comp-entry, .f-comp-exit'), function (node) {
+        node.addEventListener('change', updateSummary);
+      });
+      updateSummary();
+    } else if (tpl === 'close_buy_open_sell') {
       box.innerHTML = '<div class="field"><label>MACD 参数</label>'
         + '<input type="text" value="12 / 26 / 9（已锁定）" disabled /></div>';
     }
@@ -693,6 +717,25 @@
       var nmEl = findEl('f-stockname');
       if (nmEl && nmEl.value.trim()) req0.name = nmEl.value.trim();
       var params = {};
+      if (tpl === 'composition') {
+        var entryType = findEl('f-comp-entry').value;
+        var exitsPicked = [];
+        Array.prototype.forEach.call(document.querySelectorAll('.f-comp-exit'), function (c) {
+          if (c.checked) exitsPicked.push(c.value);
+        });
+        if (!exitsPicked.length) throw new Error('请至少选择一个退出条件');
+        var entryParams = entryType === 'breakout' ? { lookback: 20 } : { fast: 5, slow: 20, maType: 'SMA' };
+        var exitParams = {
+          fixedHolding: { days: 5 },
+          returnThreshold: { takeProfit: 0.1, stopLoss: 0.05 },
+          maCross: { fast: 5, slow: 20, maType: 'SMA' }
+        };
+        params.composition = {
+          schema: 'stv.composition/0.1',
+          entry: { type: entryType, params: entryParams },
+          exits: exitsPicked.map(function (t) { return { type: t, params: exitParams[t] }; })
+        };
+      }
       if (tpl === 'close_buy_open_sell') {
         var entryEl = findEl('f-entry');
         if (entryEl) params.entrySignal = entryEl.value;

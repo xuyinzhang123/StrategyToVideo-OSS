@@ -320,3 +320,36 @@ V0.2 **已发布**（tag `v0.2.0`）。本轮成果（数据接口层 + 策略�
 
 不合并 main、不建 Release、不碰私人仓库、不强制推送、不新增策略/AI API/复杂视觉功能、不做无关的双电脑同步排障。
 遇到阻断先保留已推送成果并如实报告，不要编造数据或强行宣称验收通过。
+
+## A9. 策略表达层 · 四组件组合（2026-11-17 晚 · 本轮完成）
+
+设计先行：`docs/dev/STRATEGY_COMPOSITION_DESIGN.md`（提交 `b6ced13`），实现提交 `8005f22`。
+
+**实现**：四个可组合组件 `maCross`（入场/退出）、`breakout`（入场）、`fixedHolding`（退出）、`returnThreshold`（退出）。
+一个入场 + 1~3 个退出（OR）；信号收盘确认、下一交易日开盘成交。
+同日多退出只成交一次，`reasons` 按配置顺序完整保留；未选中的组件不产生信号。
+
+**隔离**：`strategy_runner.cjs` 一行未改；新增 `strategy_conditions.cjs` +
+`strategy_runner_composed.cjs`（受控副本）；`strategy_engine.cjs` 仅在
+`params.composition` 存在时分发。前端在现有策略卡通道内加模板，未新建出片链路。
+
+**四张样例卡**（`samples/strategy_cards/composition_*.json`）均已真实联网取数出片并验收：
+
+| run | 组合 | 交易 | 期末资产 | 视频 SHA（前 16） | 验收 |
+|---|---|---|---|---|---|
+| composition_ma_ma_A | MA 入 + MA 出 | 23 | 101,774.36 | f5b46020e36cdfab | 20/20 |
+| composition_breakout_hold | 突破 + 固定持有5日 | 15 | 91,213.97 | 0553610416f6f47a | 20/20 |
+| composition_breakout_tpsl | 突破 + 止盈10/止损5 | 5 | 96,308.59 | dcf724df70347abe | 20/20 |
+| composition_ma_hold_sl | MA + 持有5日 + 止损5 | 20 | 106,446.29 | cdf462e4fbfbad82 | 20/20 |
+
+产物在 `output/composition_*/`，按 gitignore 不入库（含真实行情数据）。
+
+**验收**：
+- 新增 `verify_strategy_composition.cjs` 10/10（含突破排除当日、止盈基准为买入成交价、
+  同日多退出一次成交、资产恒等式、确定性、注入失败）。
+- 通用验收脚本按 `state.compositionMode` 分流买入价断言：旧卡=当日 close，组合=次开盘 open；
+  **项数不变、阈值不变**，旧卡 20/20、四张组合卡 20/20。
+- 反向验证 `check_accept_negative.py` PASS。
+
+**旧门禁（改动后复跑）**：27/27、36/36、20/20；网页 e2e `resultSha256=5df18d704…` 不变；
+CLI 重建旧卡 46 笔、期末 96,652.73、`resultSha256=d3240313…`（CLI 链历史锚点，与网页锚点不同源，均验到）。

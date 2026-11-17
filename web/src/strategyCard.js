@@ -38,6 +38,14 @@ const TEMPLATES = {
     warmup: 60,
     defaultParams: { fast: 12, slow: 26, signal: 9 },
   },
+  // V0.3 组合策略：一个入场 + 多个退出（OR），信号收盘确认、次开盘成交。
+  composition: {
+    id: 'close_buy_open_sell',
+    name: '组合策略 · 入场/退出可配置',
+    desc: '选择入场条件与退出条件组合；所有信号收盘确认、下一交易日开盘成交',
+    warmup: 60,
+    defaultParams: {},
+  },
 };
 
 const TEMPLATE_IDS = Object.keys(TEMPLATES);
@@ -88,6 +96,39 @@ function normalizeParams(templateId, raw) {
       return fail('E_PARAMS', 'MACD 参数本轮锁定为 12 / 26 / 9（与封版回测一致），暂不支持修改');
     }
     return { ok: true, value: { fast: 12, slow: 26, signal: 9 } };
+  }
+
+  // composition：只接受组合白名单，字段结构由服务端 buildConditions 再验一遍。
+  if (templateId === 'composition') {
+    const allowed = new Set(['composition']);
+    for (const k of Object.keys(raw)) {
+      if (!allowed.has(k)) return fail('E_PARAMS', `组合策略不支持参数：${k}`);
+    }
+    const c = raw.composition;
+    if (!isPlainObject(c)) return fail('E_PARAMS', 'composition 必须是对象');
+    const entry = c.entry;
+    if (!isPlainObject(entry) || !['maCross', 'breakout'].includes(entry.type))
+      return fail('E_PARAMS', '入场条件只能是 maCross / breakout');
+    const exits = c.exits;
+    if (!Array.isArray(exits) || exits.length < 1 || exits.length > 3)
+      return fail('E_PARAMS', '退出条件需为 1~3 个');
+    const exitTypes = new Set();
+    for (const e of exits) {
+      if (!isPlainObject(e) || !['maCross', 'fixedHolding', 'returnThreshold'].includes(e.type))
+        return fail('E_PARAMS', '退出条件只能是 maCross / fixedHolding / returnThreshold');
+      if (exitTypes.has(e.type)) return fail('E_PARAMS', '退出条件不可重复：' + e.type);
+      exitTypes.add(e.type);
+    }
+    return {
+      ok: true,
+      value: {
+        composition: {
+          schema: 'stv.composition/0.1',
+          entry: { type: entry.type, params: entry.params && isPlainObject(entry.params) ? entry.params : {} },
+          exits: exits.map(e => ({ type: e.type, params: e.params && isPlainObject(e.params) ? e.params : {} })),
+        }
+      }
+    };
   }
 
   // close_buy_open_sell
@@ -162,7 +203,7 @@ function buildCard(body) {
 
   const card = {
     schemaVersion: SCHEMA_VERSION,
-    id: templateId,
+    id: tpl.id,
     name: tpl.name,
     symbol,
     nameOfSecurity: nameOfSecurity || symbol,
@@ -204,7 +245,11 @@ function requiredWarmup(card) {
   let need = 1;
   if (card.id === 'macd_cross') need = 34;
   if (card.id === 'close_buy_open_sell') {
-    need = (card.params && card.params.entrySignal === 'macd_golden') ? 35 : 1;
+    if (card.params && card.params.composition)
+      need = (card.params.composition.entry.type === 'breakout')
+        ? (card.params.composition.entry.params.lookback || 20) + 1
+        : (card.params.composition.entry.params.slow || 20) + 1;
+    else need = (card.params && card.params.entrySignal === 'macd_golden') ? 35 : 1;
   }
   return Math.max(need, Math.min(explicit || DEFAULT_WARMUP, MAX_WARMUP));
 }
