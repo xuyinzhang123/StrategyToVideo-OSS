@@ -1,8 +1,8 @@
 {
   "name": "strategy-to-video-oss-v01",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
-  "description": "Strategy to Video Open Source — 本地优先的策略可视化与视频生成工具：MACD 演示（SIMULATED）+ 用户 CSV 导入（V0.2）+ 策略卡自动取数/回测/视频（V0.3）",
+  "description": "Strategy to Video Open Source — 本地优先的策略可视化与视频生成工具：MACD 演示（SIMULATED）+ 用户 CSV 导入（V0.2）+ 策略卡自动取数/回测/视频（V0.3）+ 离线自然语言描述策略（V0.4）",
   "license": "MIT",
   "scripts": {
     "start": "node web/server.js",
@@ -11,6 +11,7 @@
     "check:determinism": "node tools/check_determinism.cjs",
     "check:api": "node tools/check_api_contract.cjs",
     "check:card": "node tools/check_strategy_card_api.cjs",
+    "check:composition": "node engine_next/tests/verify_strategy_composition.cjs",
     "check:nl": "node engine_next/tests/verify_nl_parser.cjs",
     "check:nl-preview": "node tools/check_nl_preview.cjs",
     "check:accept": "python engine_next/tests/accept_strategy_video.py --run strategy_600000_A",
