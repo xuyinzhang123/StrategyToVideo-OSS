@@ -266,5 +266,80 @@ check('24 规则串由结构化字段生成，覆盖入场与全部出场', () =
   assert.ok(d.ruleText.includes('次一交易日开盘成交'));
 });
 
+check('25 多条件与：明确说「且」才合成 all，两个条件同属入场', () => {
+  const d = parse('5日均线上穿20日均线 且 突破前5个交易日最高价 买入，持有5天卖出');
+  assert.equal(d.executable, true, JSON.stringify(d.issues));
+  const e = d.params.composition.entry;
+  assert.equal(e.type, 'all');
+  assert.deepEqual(e.items.map(x => x.type), ['maCross', 'breakout']);
+  assert.equal(e.items[0].params.fast, 5);
+  assert.equal(e.items[1].params.lookback, 5);
+  assert.ok(d.ruleText.includes('且'), '规则串应体现「且」而不是「或」');
+});
+
+check('26 未说明与/或时拒绝猜测（E_MULTI_ENTRY）', () => {
+  const d = parse('5日均线上穿20日均线买入，突破前20日最高价买入，持有5天卖出');
+  assert.equal(d.executable, false);
+  assert.ok(d.issues.some(i => i.code === 'E_MULTI_ENTRY'), JSON.stringify(d.issues.map(i => i.code)));
+  assert.equal(d.params, null);
+});
+
+check('27 移动止损：识别触发条件与默认值，且不重复生成固定止损', () => {
+  const a = parse('5日均线上穿20日均线买入，从最高点回撤8%卖出');
+  assert.equal(a.executable, true, JSON.stringify(a.issues));
+  assert.deepEqual(a.params.composition.exits, [{ type: 'trailingStop', params: { drawdown: 0.08 } }]);
+  assert.ok(a.ruleText.includes('回撤 8%'));
+
+  const b = parse('突破前20日最高价买入，移动止损卖出');
+  assert.equal(b.executable, true, JSON.stringify(b.issues));
+  assert.deepEqual(b.params.composition.exits, [{ type: 'trailingStop', params: { drawdown: 0.08 } }]);
+  assert.ok(b.defaults.some(x => x.field === 'exits.trailingStop.drawdown'), '未给百分比必须列进默认值');
+});
+
+check('28 未提「移动/最高点」时，回撤仍按固定止损处理（不被劫持）', () => {
+  const d = parse('5日均线上穿20日均线买入，持有5天卖出，回撤8%止损');
+  assert.equal(d.executable, true, JSON.stringify(d.issues));
+  const exits = d.params.composition.exits;
+  assert.ok(!exits.some(e => e.type === 'trailingStop'), '不应被识别成移动止损');
+  const rt = exits.find(e => e.type === 'returnThreshold');
+  assert.deepEqual(rt.params, { takeProfit: null, stopLoss: 0.08 });
+});
+
+check('29 新组件产物同样过既有门禁并能真跑回测', () => {
+  const d = parse('均线金叉 且 突破前5日最高价买入，从最高点回撤8%卖出，持有10天卖出');
+  assert.equal(d.executable, true, JSON.stringify(d.issues));
+  const pv = normalizeParams('composition', d.params);
+  assert.equal(pv.ok, true, pv.message);
+  buildConditions([], pv.value.composition);
+  const built = buildCard({
+    templateId: d.cardRequest.templateId,
+    symbol: d.suggestedSymbol || '600000',
+    startDate: '2024-02-01',
+    endDate: '2024-12-30',
+    initialCapital: 100000,
+    params: d.cardRequest.params,
+  });
+  assert.equal(built.ok, true, built.message);
+  const r = runStrategy(built.value.card, input);
+  for (const e of r.equity) {
+    const calc = +(e.cash + e.holdingValue + e.divReceivable).toFixed(2);
+    assert.ok(Math.abs(calc - e.asset) <= 0.011, `${e.date} 资产恒等式失败`);
+  }
+});
+
+check('30 反向：多条件与的子条件非法时仍被拒', () => {
+  const pv = normalizeParams('composition', {
+    composition: { schema: 'stv.composition/0.1', entry: { type: 'all', items: [{ type: 'maCross', params: {} }] }, exits: [{ type: 'fixedHolding', params: {} }] }
+  });
+  assert.equal(pv.ok, false, '单个子条件的 all 应被前置白名单拒绝');
+  assert.throws(() => buildConditions([], {
+    entry: { type: 'all', items: [{ type: 'maCross', params: {} }, { type: 'rsi', params: {} }] },
+    exits: [{ type: 'fixedHolding', params: {} }]
+  }));
+  assert.throws(() => buildConditions([], {
+    entry: { type: 'maCross', params: {} }, exits: [{ type: 'trailingStop', params: { drawdown: 1 } }]
+  }));
+});
+
 console.log(`\n自然语言翻译层验收：${pass}/${pass + fail} 通过`);
 if (fail) process.exitCode = 1;
