@@ -1,6 +1,15 @@
-# 数据接口层（pytdx → 合规股票 CSV）
+# 数据接口层（pytdx / 东方财富 → 合规股票 CSV）
 
-这是 V0.2 股票通道的**可选取数工具**，不是新的出片链。它把免费行情源 pytdx 的未复权日线，转成网页 `stock_ohlc` 导入能直接接受的 CSV；转换后的 CSV 与用户手工导出的 CSV 走**完全相同**的校验、回测、渲染与验收链路。
+这是 V0.2 股票通道的**可选取数工具**，不是新的出片链。它把免费行情源的未复权日线，转成网页 `stock_ohlc` 导入能直接接受的 CSV；转换后的 CSV 与用户手工导出的 CSV 走**完全相同**的校验、回测、渲染与验收链路。
+
+当前有两个接口，输出契约完全相同，`stock_ohlc.csv + meta.json` 可直接互换：
+
+| 接口 | 脚本 | 依赖 | 本机实测（2026-11-17） |
+|---|---|---|---|
+| 通达信 pytdx | `pytdx_fetch.py` | 可选 pytdx | 控制通道 OK、数据通道空（`CONTROL_OK_DATA_EMPTY`） |
+| 东方财富 HTTP | `eastmoney_fetch.py` | 纯标准库 | **可用**：HTTP 200，真实日线 533 根，OHLC 自洽 |
+
+两者共用 `pytdx_fetch.py` 里的规范化与门禁纯函数，**不存在第二份口径**。
 
 设计边界（不可越过）：
 
@@ -60,6 +69,44 @@ node datafeed/tests/verify_datafeed_e2e.cjs
 - 因此本轮**未取得真实行情数据**，也未据此出片；所有验证用的是确定性合成样例。
 - 家里电脑若网络直连，先跑第 2 步诊断；若 `DATA_OK`，再跑第 3 步取真实数据。若仍为
   `CONTROL_OK_DATA_EMPTY`，可用 `--host` 指定其它可用服务器，或换网络；不要在接口层造数据绕过。
+
+## 东方财富接口（推荐）
+
+纯标准库，**不需要安装 pytdx**；`fqt=0` 强制未复权，URL 里没有复权参数可调。
+
+```bash
+# 1) 离线自检（20 项，不需网络）
+python datafeed/eastmoney_fetch.py --selftest
+
+# 2) 诊断日线通道
+python datafeed/eastmoney_fetch.py --probe-connection --code 600000
+#   verdict=DATA_OK -> 可以取数
+
+# 3) 真实取数：默认取最近 260 个【已收盘】交易日
+python datafeed/eastmoney_fetch.py --live \
+    --code 600000 --name 浦发银行 --days 260 --out datafeed/out/em_600000
+
+# 4) 端到端验证（合成 5 项 + 若真实产物存在再 3 项）
+node datafeed/tests/verify_eastmoney_e2e.cjs
+```
+
+**盘中保护**：东方财富日线接口在交易时段会返回当天的动态 K 线，其 `close` 尚未定，
+脚本默认剔除该日并在 `meta.json.excludedUnclosedDate` 记录；只有收盘后确认要用当天，
+才显式加 `--include-today`。这是为避免“同一天盘中/收盘出片结果不同”破坏确定性。
+
+**接口行为注意**：东方财富公开 kline 接口的 `lmt` 参数不可靠（实测给 `lmt=5` 仍返回
+533 根），所以脚本拉全 `beg~end` 后在本地按 `--days` 截取；`beg` 从 2015-08-01 起，
+保证不越过费率规则起点。
+
+### 本机（工厂电脑）实测状态 · 2026-11-17
+
+- 公开接口 `push2his.eastmoney.com` HTTP 200，600000 未复权日线 533 根，
+  OHLC 自洽 0 异常；字段顺序 f52=开 / f53=收 / f54=高 / f55=低，已按此映射。
+- 真实取数：260 交易日（2025-10-22 ~ 2026-11-16），自动剔除未收盘日 2026-11-17。
+- `eastmoney_fetch.py --selftest` 20/20；`verify_eastmoney_e2e.cjs` 8/8；
+  真实 CSV 通过 `validateImport`（`W_NO_DIVIDENDS`），`adjust=qfq` 仍被 G-6 拒绝。
+- 既有四链回归未变：pytdx 自检 13/13、pytdx E2E 5/5、`check:samples` 30/30、
+  `test_timeline_bounds.py` 3 组冻结 SHA 不变；`git diff 5884e0f` 对既有链路为空。
 
 ## 与 super-short 策略（下一步）的关系
 

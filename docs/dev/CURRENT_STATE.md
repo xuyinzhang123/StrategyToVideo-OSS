@@ -22,12 +22,24 @@
 
 ## 2. 本轮完成的事
 
+### A2. 东方财富数据接口（2026-11-17 追加，主线）
+- `datafeed/eastmoney_fetch.py`：纯标准库走东方财富公开 kline HTTP 接口，`fqt=0` 强制未复权，
+  输出与 pytdx 完全同契约的 `stock_ohlc.csv + meta.json`；规范化/门禁复用 `pytdx_fetch.py`
+  单一事实源；默认剔除当天未收盘 K 线（`meta.excludedUnclosedDate`），`--include-today` 显式放开。
+- **工厂电脑实测接口可用**：HTTP 200，600000 日线 533 根（2024-09-02 ~ 2026-11-17），OHLC 自洽 0 异常；
+  真实取 260 交易日（2025-10-22 ~ 2026-11-16，剔除未收盘日 2026-11-17），
+  通过 `validateImport`（仅 `W_NO_DIVIDENDS`），qfq 仍 `E_ADJUST_UNVERIFIED`。
+- 测试：`eastmoney_fetch.py --selftest` **20/20**；`verify_eastmoney_e2e.cjs` **8/8**（含真实产物门禁）。
+- pytdx 仍是 `CONTROL_OK_DATA_EMPTY`，两个接口并存、互不替换；既有四链 `git diff 5884e0f` 为空。
+
 ### A. 数据接口层 `datafeed/`（主线）
 - `datafeed/pytdx_fetch.py`：从 pytdx 拉未复权日线，生成 `stock_ohlc.csv` + `meta.json`。
   - 强制 `adjust=none`；主板代码段；起点 ≥ 2015-08-01；≥34 交易日；OHLC 自洽。
   - **不自动生成分红表**：pytdx 无登记日/派息日，契约禁止推导；`--dividend-hint` 只导线索供人工补。
   - pytdx 是可选依赖（延迟导入）；`--selftest` 离线可跑。
   - `--probe-connection` 诊断"连不上" vs "连上但数据为空"；`--probe-auction` 探测 9:25 集合竞价/分时。
+  - 用户口径修正（11:13）：对日线策略，9:25 集合竞价结果即 `open`、14:57 收盘竞价结果即 `close`；
+    「尾盘买/次日开盘卖」首版只需未复权日线 OHLC，**不再把竞价/分钟数据当前置条件**。
 - `datafeed/tests/verify_datafeed_e2e.cjs`：证明接口层产物通过 `web/src/import/validate.js` 的同一套门禁。
 - `datafeed/README.md`：依赖、命令、边界、本机实测状态。
 - 既有四条出片链（v122/v123/generic/backtest 与 web/tools/docs/package/README/requirements）**零改动**（已用 `git diff 5884e0f` 核对为空）。
