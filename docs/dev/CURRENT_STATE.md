@@ -15,7 +15,7 @@
 |---|---|---|
 | `main` | `5884e0f` | 已发布基线，**不要改动、不要强推** |
 | tag `v0.2.0` | `70f4918` | V0.2 正式发布点 |
-| `feat/datafeed-pytdx` | `3242dc4` | **当前主线**：pytdx + 东方财富双接口 + 策略卡契约/引擎（详见 STRATEGY_ENGINE_HANDOFF.md） |
+| `feat/datafeed-pytdx` | 见本节末实际指针 | **当前主线**：pytdx + 东方财富双接口 + 策略卡契约/引擎（详见 STRATEGY_ENGINE_HANDOFF.md） |
 | `feat/v0.3-phase0-storyboard` | `fb9d91d` | 竖版"数据解剖片"渲染器，**已按方向决定暂停**，成果保留不删 |
 
 没有 PR（V0.2 的 PR #1 已合并关闭）。本轮不合并 main、不开 PR、不发版。
@@ -55,10 +55,16 @@
 | `python datafeed/pytdx_fetch.py --selftest` | **13/13** |
 | `node datafeed/tests/verify_datafeed_e2e.cjs` | **5/5**（含 G-6 qfq 仍被拒） |
 | 接口层产物喂 `validateImport` | `ok=true`，260 bars，警告仅 `W_NO_DIVIDENDS` |
-| `--probe-connection 115.238.90.165:7709` | `CONTROL_OK_DATA_EMPTY`：`securityCountSH=27881`，`bars600000=0` |
-| `git diff 5884e0f -- engine_next/ web/ tools/ docs/ ...` | 空（既有出片链零改动） |
+| `--probe-connection 115.238.90.165:7709`（pytdx） | `CONTROL_OK_DATA_EMPTY`：`securityCountSH=27881`，`bars600000=0` |
+| `node engine_next/tests/verify_strategy_engine.cjs` | **26/26**（锚点 7/7 + 新内核预热/金叉/跳空 8/8 + 门禁） |
+| `git diff 5884e0f -- engine_next/lib/ web/ tools/ docs/DATA_SPEC.md docs/samples/ ...` | 空（封版出片链零改动） |
 
-**未取得真实行情数据**；真实取数、`--probe-auction` 的数据可得性均未在本机验证通过（数据通道为空）。不要写成"已验证真实数据"。
+数据状态按接口区分，不要混为一谈：
+- **东方财富接口已取得真实数据**：600000 未复权日线 260 交易日，通过 `validateImport`（见 §A2）。
+  但**尚未用这批真实数据走完整出片**（导入→回测→V1.2.3→41 项）。
+- **pytdx 仍是 `CONTROL_OK_DATA_EMPTY`**：连得上、股票数正常，但 K 线数据空洞。不要写成"pytdx 已验证真实数据"。
+- 按用户 11:13 口径，日线策略用 `open/close` 即可表达尾盘买/次日开盘卖，`--probe-auction`（竞价/分钟量级）
+  **不再是前置条件**；只有要用竞价量/未匹配量/逐笔委托时才需要，那时另立数据契约。
 
 ## 4. 尚未解决 / 已知限制
 
@@ -74,9 +80,10 @@
 
 主线是"股票策略可视化"，建议顺序：
 
-1. **先在家里验证数据接口层能取到真数**（第 6 节步骤 4）。拿到一条真实主板股票的 260 日未复权 CSV，走一遍网页导入 → 回测 → V1.2.3 出片 → 41 项验收。这是把"合成样例全绿"升级为"真实数据也成立"的关键一步。
-2. **确认集合竞价数据可得性**：`--probe-auction`。若 9:25 逐笔可得，再评估超短线策略（尾盘竞价买入 / 次日早盘卖出）的可视化；拿不到就不要硬做。
-3. **再谈超短线策略可视化**：这是"专注股票策略"的下一步产品形态，但属于新增策略，**本轮未做**，需单独定义口径并验收，不要直接塞进现有 MACD 链路。
+1. **用已取到的东方财富真实数据走完整出片**：拿 600000 的 260 日未复权 CSV，走网页导入 → 回测 → V1.2.3 → 41 项验收。把"合成样例全绿"升级为"真实数据也成立"。这一步不需等家里网络（工厂已取到真数）。
+2. **Web 接入策略卡**：选模板 + 填参数 + 选区间 + 导入 CSV（复用 `validateImport`）。策略引擎本轮已把预热切分 / `macd_golden` 入场 / 9:25 跳空过滤真正执行（26/26 自检），接口就绪，待前端表单。
+3. **渲染器改读 `backtest_result.json`**：先做 MACD 模板等价替换保持 41/41，再支持 `close_buy_open_sell` 独立验收。
+4. **超短线策略**：`close_buy_open_sell` 已具备首版内核（尾盘买/次日开盘卖 + 跳空情绪过滤），但**尚未独立验收、未出片、未接网页**，按新增策略单独定义口径，不塞进 MACD 41 项。若将来要用竞价量级数据，另立契约。
 
 ## 6. 家里电脑接续步骤
 

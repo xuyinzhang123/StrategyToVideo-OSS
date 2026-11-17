@@ -127,5 +127,84 @@ check('预热不足（bars 起点晚于展示起点）被拒', () => {
   assert.throws(() => runStrategy(baseCard, bad), (e) => e instanceof StrategyError && e.code === 'E_NO_WARMUP');
 });
 
-console.log(`\n策略引擎自检：${passed}/18 通过`);
-if (passed !== 18) process.exitCode = 1;
+// ---- D. close_buy_open_sell 新内核：预热切分 / 金叉入场 / 9:25 跳空过滤 ----
+const signalCard = Object.assign({}, baseCard, {
+  id: 'close_buy_open_sell',
+  name: '金叉尾盘买+跳空过滤',
+  range: { start: '2024-07-01', end: '2024-12-30', warmupBars: 40, warmupMode: 'prepend' },
+  params: {
+    entrySignal: 'macd_golden', entryFill: 'sameClose', exitFill: 'nextOpen',
+    fast: 12, slow: 26, signal: 9,
+    auctionFilter: { basis: 'open_gap_pct', holdIfGte: 0.002, else: 'sellAtOpen' }
+  }
+});
+const signaled = runStrategy(signalCard, input);
+
+check('预热切分：预热段 equity 有值但零成交', () => {
+  const warmEquity = signaled.equity.filter(e => e.date < signalCard.range.start);
+  assert.ok(warmEquity.length > 0, '应存在预热段逐日估值');
+  assert.equal(signaled.trades.filter(t => t.date < signalCard.range.start).length, 0, '预热段不得有任何成交');
+  assert.equal(signaled.state.warmupExec.mode, 'prepend-no-trade');
+  assert.equal(signaled.state.warmupExec.displayTradableDays + signaled.state.warmupExec.warmupTradableDays > 0, true);
+});
+check('金叉入场：每个 ENTRY 对应一个金叉信号且当日 close 买入', () => {
+  const entries = signaled.decisions.filter(d => d.kind === 'ENTRY');
+  assert.ok(entries.length > 0);
+  assert.ok(entries.every(d => d.reason === 'macd_golden_sameClose'));
+  const goldenDates = new Set(signaled.signals.filter(s => s.type === 'GOLDEN').map(s => s.date));
+  assert.ok(entries.every(d => goldenDates.has(d.date)), 'ENTRY 日必须是金叉信号日');
+  const byDate = new Map(input.bars.map(b => [b.date, b]));
+  for (const d of entries) {
+    const buy = signaled.trades.find(t => t.side === 'BUY' && t.date === d.date);
+    assert.ok(buy, `${d.date} 应有买入`);
+    assert.equal(buy.price, byDate.get(d.date).close, '金叉日尾盘按 close 买入');
+  }
+});
+check('9:25 跳空过滤：HOLD 决策达阈值、EXIT 按 open 卖、可复现', () => {
+  assert.equal(signaled.metrics.auction.enabled, true);
+  assert.equal(signaled.state.auctionFilter.executed, true);
+  const holds = signaled.decisions.filter(d => d.kind === 'HOLD');
+  assert.ok(holds.length > 0, '该样本阈值下应至少触发一次 HOLD');
+  assert.ok(holds.every(d => d.openGapPct >= 0.002), 'HOLD 日跳空必须 >= 阈值');
+  assert.equal(signaled.metrics.auction.holdDays, holds.length);
+  for (const s of signaled.trades.filter(t => t.side === 'SELL')) {
+    assert.equal(s.price, new Map(input.bars.map(b => [b.date, b])).get(s.date).open, '卖出按次日 open');
+  }
+  const again = runStrategy(signalCard, input);
+  assert.equal(signaled.reproducibility.resultSha256, again.reproducibility.resultSha256);
+});
+check('auctionFilter 参数门禁：非法 basis / 非法 else 被拒', () => {
+  const bad1 = Object.assign({}, signalCard, { params: Object.assign({}, signalCard.params, {
+    auctionFilter: { basis: 'volume', holdIfGte: 0.01 } }) });
+  assert.throws(() => runStrategy(bad1, input), (e) => e.code === 'E_AUCTION_FILTER');
+  const bad2 = Object.assign({}, signalCard, { params: Object.assign({}, signalCard.params, {
+    auctionFilter: { basis: 'open_gap_pct', holdIfGte: 0.01, else: 'sellAtClose' } }) });
+  assert.throws(() => runStrategy(bad2, input), (e) => e.code === 'E_AUCTION_ELSE');
+});
+check('entrySignal 非法值被拒', () => {
+  const bad = Object.assign({}, signalCard, { params: Object.assign({}, signalCard.params, { entrySignal: 'random' }) });
+  assert.throws(() => runStrategy(bad, input), (e) => e.code === 'E_ENTRY_SIGNAL');
+});
+check('always 入场等价旧隔夜骨架（每交易日收盘买、次日开盘卖）', () => {
+  const alwaysCard = Object.assign({}, baseCard, {
+    id: 'close_buy_open_sell',
+    params: { entrySignal: 'always', entryFill: 'sameClose', exitFill: 'nextOpen' }
+  });
+  const always = runStrategy(alwaysCard, input);
+  assert.ok(always.trades.length > 0);
+  assert.ok(always.decisions.filter(d => d.kind === 'ENTRY').every(d => d.reason === 'close_buy'));
+  assert.equal(always.metrics.auction.enabled, false);
+  const byDate = new Map(input.bars.map(b => [b.date, b]));
+  assert.ok(always.trades.every(t => t.price === (t.side === 'BUY' ? byDate.get(t.date).close : byDate.get(t.date).open)));
+});
+check('新结果仍符合统一 schema（九大块）', () => {
+  const keys = ['schemaVersion', 'strategy', 'state', 'signals', 'trades', 'equity', 'decisions', 'metrics', 'reproducibility'];
+  assert.deepEqual(Object.keys(signaled).sort(), keys.sort());
+  assert.ok(signaled.equity.every(e => Number.isFinite(e.asset)));
+});
+check('signals 禁止未来函数（新内核成交日>=信号日）', () => {
+  assert.ok(signaled.signals.every(s => s.execDate >= s.date));
+});
+
+console.log(`\n策略引擎自检：${passed}/26 通过`);
+if (passed !== 26) process.exitCode = 1;

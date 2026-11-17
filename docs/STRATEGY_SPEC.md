@@ -125,8 +125,15 @@ V0.2 已经能把「一份合规股票 CSV」变成一条可验收的 MACD 回�
   计算的跳空幅度，不依赖竞价量/未匹配量/逐笔委托；若以后要用量级数据，另开 `basis`。
 - 该模板是新策略，**独立验收**，不塞进 MACD 的 41 项验收，也不改 V0.2 数值。
 
-> 边界声明：`entryFill=sameClose` 在现有封版内核里不是默认路径，策略引擎以独立 runner
-> 实现并在结果里标注 `fillAssumption`。它不与 V0.2 视频链绑定，需有自己的确定性验证。
+> 执行状态（2026-11-17 更新）：本模板由 `engine_next/strategy_runner.cjs` 执行，三项声明字段均已真正生效——
+> ① `range.start` 前为预热段，只算指标、逐日估值照常产出但**零成交**；
+> ② `entrySignal=macd_golden` 时只有金叉确认日才建仓、当日 `close` 买入；
+> ③ `auctionFilter` 在持仓期间每个交易日开盘计算 `gap=open[T]/close[T-1]-1`，`gap>=holdIfGte` → `HOLD`
+> （开盘继续持有），否则 `nextOpen` 卖出，最后展示交易日无条件开盘平仓。
+>
+> 边界声明：`entryFill=sameClose` 是“尾盘口径”的既定价假设——MACD 交叉由当日 `close` 计算并在当日
+> `close` 成交。引擎在 `state.fillAssumption` 写明 `{entry:'sameClose',exit:'nextOpen'}`，**不声称消除该假设**。
+> 它不与 V0.2 视频链绑定（封版 `engine_next/lib/` 零改动），需有自己的独立验收与确定性验证。
 
 ## 3. 统一回测结果（`backtest_result.json`）
 

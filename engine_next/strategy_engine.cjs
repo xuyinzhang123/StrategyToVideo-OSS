@@ -22,8 +22,9 @@ const path = require('path');
 const crypto = require('crypto');
 
 const { buildSchedule, r2 } = require('./lib/stock_cost.cjs');
-const { buildTimeline, runHoldStock, runOvernightStock } = require('./lib/stock_core.cjs');
-const { runMacdStock, computeMacd } = require('./lib/stock_macd_core.cjs');
+const { buildTimeline, runHoldStock } = require('./lib/stock_core.cjs');
+const { runMacdStock } = require('./lib/stock_macd_core.cjs');
+const { runStrategyRunner } = require('./strategy_runner.cjs');
 const { assertSupportedSymbol, assertSupportedActions, UnsupportedError } = require('./lib/support_guard.cjs');
 
 const ENGINE_VERSION = '0.1.0';
@@ -51,6 +52,22 @@ function validateCard(card) {
     fail('E_DIV_POLICY', `dividendPolicy 只能是 provided / ignored，收到 ${d.dividendPolicy}`);
   if (card.execution && card.execution.lotSize && card.execution.lotSize !== 100)
     fail('E_LOT', 'lotSize 当前只支持 100');
+  if (card.id === 'close_buy_open_sell') {
+    const p = card.params || {};
+    if (p.entrySignal && !['macd_golden', 'always', 'none'].includes(p.entrySignal))
+      fail('E_ENTRY_SIGNAL', `entrySignal 只能是 macd_golden / always / none，收到 ${p.entrySignal}`);
+    if (p.entryFill && p.entryFill !== 'sameClose')
+      fail('E_ENTRY_FILL', `close_buy_open_sell 只支持 entryFill=sameClose，收到 ${p.entryFill}`);
+    if (p.exitFill && p.exitFill !== 'nextOpen')
+      fail('E_EXIT_FILL', `close_buy_open_sell 只支持 exitFill=nextOpen，收到 ${p.exitFill}`);
+    if (p.auctionFilter) {
+      const af = p.auctionFilter;
+      if (af.basis !== 'open_gap_pct' || typeof af.holdIfGte !== 'number')
+        fail('E_AUCTION_FILTER', 'auctionFilter 需 {basis:"open_gap_pct", holdIfGte:number}');
+      if (af.else && af.else !== 'sellAtOpen')
+        fail('E_AUCTION_ELSE', 'auctionFilter.else 当前只支持 sellAtOpen');
+    }
+  }
   return card;
 }
 
@@ -63,8 +80,16 @@ function templates(card) {
       execFill: 'nextOpen'
     };
   }
-  // close_buy_open_sell：runOvernightStock 固定收盘买/次日开盘卖，无需 MACD 预热
-  return { readyFrom: 0, defaultWarmup: 0, execFill: 'close_buy_open_sell' };
+  // close_buy_open_sell：入场为 MACD 金叉时，预热至少覆盖 slow+signal；always 入场则无需预热
+  const p = card.params || {};
+  const entrySignal = p.entrySignal || 'always';
+  const needMacd = entrySignal === 'macd_golden';
+  return {
+    readyFrom: needMacd ? (p.slow || 26) - 1 + (p.signal || 9) - 1 : 0,
+    defaultWarmup: needMacd ? (p.slow || 26) + (p.signal || 9) : 0,
+    execFill: 'close_buy_open_sell',
+    entrySignal
+  };
 }
 
 /* --------------------------- 输入准备 --------------------------- */
@@ -202,8 +227,14 @@ function runStrategy(card, input, cfg) {
       macd: { fast: p.fast || 12, slow: p.slow || 26, signal: p.signal || 9 }
     }));
   } else {
-    // close_buy_open_sell：收盘买/次日开盘卖，直接复用隔夜内核。
-    raw = runOvernightStock(days, baseOpts);
+    // close_buy_open_sell：走独立 runner（预热切分 / 入场信号 / 9:25 跳空过滤）。
+    const p = card.params || {};
+    raw = runStrategyRunner(days, Object.assign({}, baseOpts, {
+      tradeFrom: card.range.start,
+      entrySignal: p.entrySignal || 'always',
+      macd: { fast: p.fast || 12, slow: p.slow || 26, signal: p.signal || 9 },
+      auctionFilter: p.auctionFilter || null
+    }));
   }
 
   const hold = runHoldStock(days, baseOpts);
@@ -213,21 +244,35 @@ function runStrategy(card, input, cfg) {
   if (card.id === 'close_buy_open_sell')
     warnings.push('W_STRATEGY_INDEPENDENT: 本策略为新增模板，独立验收，不套用 MACD 41 项');
 
+  const state = {
+    start: card.range.start,
+    end: card.range.end,
+    bars: prepared.bars.length,
+    warmupBars: card.range.warmupBars != null ? card.range.warmupBars : tpl.defaultWarmup,
+    readyFrom: tpl.readyFrom,
+    warnings
+  };
+  if (card.id === 'close_buy_open_sell') {
+    const p = card.params || {};
+    state.fillAssumption = { entry: 'sameClose', exit: 'nextOpen' };
+    state.entrySignal = p.entrySignal || 'always';
+    state.auctionFilter = p.auctionFilter ? Object.assign({}, p.auctionFilter, { executed: true }) : null;
+    state.warmupExec = {
+      mode: 'prepend-no-trade',
+      displayTradableDays: summary.displayTradableDays,
+      warmupTradableDays: summary.warmupTradableDays
+    };
+  }
+
   const result = {
     schemaVersion: SCHEMA_VERSION,
     strategy: JSON.parse(JSON.stringify(card)),
-    state: {
-      start: card.range.start,
-      end: card.range.end,
-      bars: prepared.bars.length,
-      warmupBars: card.range.warmupBars != null ? card.range.warmupBars : tpl.defaultWarmup,
-      readyFrom: tpl.readyFrom,
-      warnings
-    },
+    state,
     signals: normalizeSignals(raw, tpl),
     trades: normalizeTrades(raw),
     equity: normalizeEquity(raw.daily, baseOpts.initialCapital),
-    decisions: normalizeDecisions(raw, card, tpl),
+    decisions: (card.id === 'close_buy_open_sell' && Array.isArray(raw.decisions) && raw.decisions.length)
+      ? raw.decisions.map(d => Object.assign({}, d)) : normalizeDecisions(raw, card, tpl),
     metrics: {
       final: summary.final,
       totalReturn: summary.totalReturn,
@@ -239,7 +284,18 @@ function runStrategy(card, input, cfg) {
       totalFees: summary.totalFees,
       totalDividendTax: summary.totalDividendTax,
       feeBreakdown: summary.feeBreakdown,
-      benchmark: { id: 'hold', final: hold.summary.final }
+      benchmark: { id: 'hold', final: hold.summary.final },
+      ...(card.id === 'close_buy_open_sell' ? {
+        entrySignal: summary.entrySignal,
+        auction: {
+          enabled: !!summary.auctionFilter,
+          config: summary.auctionFilter,
+          holdDays: summary.auctionHoldDays,
+          gapsEvaluated: summary.gapsEvaluated,
+          maxGap: summary.maxGap,
+          minGap: summary.minGap
+        }
+      } : {})
     },
     reproducibility: { engineVersion: ENGINE_VERSION, resultSha256: null }
   };

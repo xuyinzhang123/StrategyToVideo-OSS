@@ -1,72 +1,91 @@
-# 策略引擎交接（Draft 1 · 2026-11-17）
+# 策略引擎交接（Draft 2 · 2026-11-17）
 
-> 分支 `feat/datafeed-pytdx`，基点 `faa3d02`。本轮**不接 web、不改 V0.2 出片链、不动 main**。
-> 这是“用户输入自己的策略就能出回测视频”这条目标的第一块地基：把“策略”从代码里抽成策略卡。
+> 分支 `feat/datafeed-pytdx`，基点 `9cf821d` 之后的新提交。本轮**不接 web、不改 V0.2 出片链、不动 main**。
+> 目标仍是“用户输入自己的策略就能出回测视频”的第一块地基：把“策略”从代码里抽成策略卡，并让策略卡的关键字段**真正执行**。
 
 ## 0. 一句话结论
 
-新增了独立策略引擎：策略卡 → 统一 `backtest_result.json`。两个模板都**零改动复用**已封版内核
-的纯函数；`macd_cross` 逐项复现 V0.2 全部锚点（证明等价于旧链路），`close_buy_open_sell`
-（尾盘买/次日开盘卖）作为新增策略独立跑通。
+独立策略引擎已把策略卡翻译成统一 `backtest_result.json`。`macd_cross` 零改动复用 `runMacdStock`，
+逐项复现 V0.2 全部锚点；`close_buy_open_sell` 本轮从“骨架”升级为**完整 runner**：
+预热段只算指标不交易、`macd_golden` 入场信号真正驱动建仓、9:25 跳空过滤真正影响持有/卖出决策。
+封版 `engine_next/lib/` 一个字节都没改。
 
-## 1. 本轮新增
+## 1. 文件清单
 
 | 文件 | 作用 |
 |---|---|
-| `docs/STRATEGY_SPEC.md` | 策略卡契约 Draft 1：字段、区间/预热、数据口径、两个模板、统一结果、复现规则 |
+| `docs/STRATEGY_SPEC.md` | 策略卡契约：字段、区间/预热、数据口径、两个模板、统一结果、复现规则 |
 | `docs/schemas/strategy.schema.json` | 策略卡 JSON Schema（draft-07） |
 | `docs/schemas/backtest_result.schema.json` | 统一结果 JSON Schema（draft-07） |
-| `engine_next/strategy_engine.cjs` | 策略引擎：`runStrategy(card, input, cfg)` + CLI，无顶层 I/O |
-| `engine_next/tests/verify_strategy_engine.cjs` | 18 项自检：锚点复现 / 新模板 / 门禁 |
+| `engine_next/strategy_engine.cjs` | 策略引擎门面：`runStrategy(card, input, cfg)` + CLI；负责校验、组装、哈希 |
+| `engine_next/strategy_runner.cjs` | **本轮新增**：`close_buy_open_sell` 专用内核，实现预热切分/入场信号/跳空过滤 |
+| `engine_next/tests/verify_strategy_engine.cjs` | **26 项自检**：锚点复现 / 新内核三项能力 / 门禁 |
 
 ## 2. 两个模板与复用关系
 
 - `macd_cross` → `runMacdStock`（`stock_macd_core.cjs`）：金叉买/死叉卖、次日开盘成交。
   **锚点复现**：金叉 12 / 死叉 11 / 23 笔 / 终值 102,918.09 / 持有 117,347.32 /
-  费用 1,261.91 / 红利税 490.00 —— 与 V0.2 封版逐位一致。
-- `close_buy_open_sell` → `runOvernightStock`（`stock_core.cjs`）：收盘买（用户口径：14:57
-  收盘竞价结果即日线 `close`）/ 次日开盘卖（9:25 集合竞价结果即日线 `open`）。
-  复用同一套费用、红利税、分红三段式、涨跌停封板、停牌顺延口径；**独立验收**，不套 MACD 41 项。
+  费用 1,261.91 / 红利税 490.00 —— 与 V0.2 封版逐位一致（本轮改动后仍 7/7 不变）。
 
-关键发现：`runOvernightStock` 本就是“收盘买/次日开盘卖”的完整内核，无需新增资金口径，
-也无需等分钟/逐笔/竞价量数据（用户 11:13 口径修正：日线 `open/close` 已足够）。
+- `close_buy_open_sell` → `runStrategyRunner`（`strategy_runner.cjs`，本轮新增）：
+  - 为什么另写 runner 而不改 `runOvernightStock`：后者是封版内核（V0.2 隔夜视频依赖它），
+    语义固定为“每天收盘买/次日开盘卖”，没有入场条件、预热切分、跳空过滤。按项目既有惯例
+    （`stock_macd_core.cjs` 复制分红三段式而不改 `stock_core.cjs`），新 runner **逐字复制**
+    私有辅助函数，资金/费用/红利税/封板口径与封版内核完全一致。
+  - 三项本轮真正执行的能力：
+    1. **预热切分**（`range.start` 之前）：逐日估值照常产出（`state.warmupExec.mode=prepend-no-trade`），
+       但**零成交**；MACD 用“预热+展示”全量计算，保证展示起点指标已热好。
+    2. **入场信号**（`params.entrySignal`）：`macd_golden` 时只有金叉确认日才建仓，当日 `close` 买入
+       （14:57 收盘竞价结果 = 日线 `close`）；`always` 为旧骨架（每交易日收盘买）；`none` 不建仓。
+    3. **9:25 跳空过滤**（`params.auctionFilter`）：持仓期间每个交易日开盘计算
+       `gap = open[T] / close[T-1] - 1`（9:25 集合竞价结果 = 日线 `open`）；
+       `gap >= holdIfGte` → 产生 `HOLD` 决策、开盘继续持有；否则 `nextOpen` 卖出。
+       结果在 `state.auctionFilter.executed=true` 与 `metrics.auction`（holdDays/gapsEvaluated/maxGap/minGap）可观测。
+
+  - **成交口径必须显式披露**：`entryFill=sameClose` 是“尾盘口径”的既定价假设——MACD 交叉由当日
+    `close` 计算并在当日 `close` 成交。引擎在 `state.fillAssumption` 写明 `{entry:'sameClose',exit:'nextOpen'}`，
+    **不声称消除该假设**，也不把它伪装成无未来函数。若未来要严格规避，可改为“T-1 收盘信号→T 收盘成交”，另出口径。
 
 ## 3. 统一结果 `backtest_result.json`
 
-字段见 `docs/STRATEGY_SPEC.md §3` 与 schema。`signals/trades/equity` 直接来自内核
-（`daily.asset` 即 `equity.asset`），`metrics` 来自 `summary`，`decisions` 是新增的“为什么这么做”
-说明层（供未来视频旁白与审计）。`reproducibility.resultSha256` 按“先置空再算”约定生成，可重复计算。
+字段见 `docs/STRATEGY_SPEC.md §3` 与 schema。`signals/trades/equity` 来自内核，
+`metrics` 来自 `summary`；`decisions` 在 `close_buy_open_sell` 下由 runner 直接产出
+（含 `openGapPct` / `HOLD` 决策），`macd_cross` 仍由门面归一化生成。
+`reproducibility.resultSha256` 按“先置空再算”约定，可重复计算。
 
 ## 4. 自检结果（2026-11-17）
 
 | 项目 | 结果 |
 |---|---|
-| `node engine_next/tests/verify_strategy_engine.cjs` | **18/18** |
+| `node engine_next/tests/verify_strategy_engine.cjs` | **26/26**（含锚点 7/7、新内核 8/8） |
 | `python datafeed/eastmoney_fetch.py --selftest` | 20/20 |
 | `node datafeed/tests/verify_eastmoney_e2e.cjs` | 8/8 |
+| `python datafeed/pytdx_fetch.py --selftest` | 13/13 |
+| `node datafeed/tests/verify_datafeed_e2e.cjs` | 5/5 |
 | `npm run check:samples` | 30/30 |
+| `python engine_next/tests/test_timeline_bounds.py` | 封版口径逐位冻结 |
 | `git diff 5884e0f -- engine_next/lib/ web/ tools/ docs/DATA_SPEC.md docs/samples/ ...` | 空（既有四链零改动） |
 
 ## 5. 已知边界 / 待办
 
-1. **未接网页**：网页仍是 V0.2 固定 MACD 链路。策略卡目前通过 CLI/库调用，下一步才做 Web 表单。
-2. **预热区间是“契约声明”，引擎按整段跑**：自检用完整 260 日样例；`range.warmupBars` 目前只写入
-   state 与门禁（bars 起点不能晚于展示起点），尚未做“预热段只算指标不交易、展示段才交易”的切分。
-   这是下一步 web 接入前要补的语义。
-3. **`close_buy_open_sell` 的 `auctionFilter`（9:25 跳空过滤）是声明字段，引擎尚未执行**：
-   目前跑的是“每天收盘买/次日开盘卖”骨架，`auctionFilter` 只记录在策略卡与 schema 里。
-   执行它需要给 `runOvernightStock` 增加可注入的入场条件（不改默认口径），列为下一步。
-4. **自然语言 / 任意代码策略**：明确不做（见 SPEC §5 非目标）。
-5. 不使用分钟/逐笔/竞价量数据；若将来要用“竞价情绪”的量级判断，另开 `basis` 与数据契约。
+1. **未接网页**：网页仍是 V0.2 固定 MACD 链路。策略卡目前通过 CLI/库调用。
+2. **`auctionFilter` 的持有语义**：HOLD 后会在**后续每个交易日**开盘重新评估跳空，
+   一旦 `gap < holdIfGte` 即卖出；展示区间最后交易日无条件开盘平仓。这是首版口径，
+   若用户想要“HOLD 后固定持有 N 日”或“只判断一次”，需新增字段（如 `maxHoldDays`），不改默认。
+3. **`warmupBars` 与真实数据的关系**：门面只校验 bars 起点不晚于展示起点；预热日数不足时，
+   `macd_golden` 入场会因 MACD 未热好而无信号（结果诚实为空），不伪造交易。取数端应多取预热段。
+4. **sameClose 的尾盘假设**：见 §2，已显式披露，未消除。
+5. **自然语言 / 任意代码策略**：明确不做（见 SPEC §5 非目标）。
+6. 不使用分钟/逐笔/竞价量数据；若将来要用“竞价情绪”的量级判断，另开 `basis` 与数据契约。
 
 ## 6. 下一步建议
 
-1. 补 `warmupBars` 的真实切分语义（预热段不交易）。
-2. 给隔夜内核加可注入的入场条件，让 `entrySignal` / `auctionFilter` 真正生效。
-3. 网页接入策略卡表单：选模板 + 填参数 + 选区间 + 导入 CSV（复用现有 `validateImport`）。
-4. 渲染器改为读 `backtest_result.json`（先做 MACD 模板的等价替换，保持 41/41）。
+1. 网页接入策略卡表单：选模板 + 填参数 + 选区间 + 导入 CSV（复用现有 `validateImport`）。
+2. 渲染器改为读 `backtest_result.json`（先做 MACD 模板的等价替换，保持 41/41）。
+3. 为 `close_buy_open_sell` 定义独立验收标准（不套 MACD 41 项），并出一条真实数据片。
+4. 如需更细的竞价情绪，另立数据契约（竞价量/未匹配量/逐笔委托），不塞进日线策略卡。
 
 ## 7. 硬边界（继续遵守）
 
 不合并 main、不建 Release、不碰私人仓库、不强制推送、不把新策略塞进 MACD 41 项验收、
-不造数据、不宣称“已接网页”。
+不造数据、不宣称“已接网页”、不修改 `engine_next/lib/` 任何封版文件。
