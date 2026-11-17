@@ -19,7 +19,9 @@
 | `feat/datafeed-pytdx` | 见本节末实际指针 | **当前主线**：pytdx + 东方财富双接口 + 策略卡契约/引擎（详见 STRATEGY_ENGINE_HANDOFF.md） |
 | `feat/v0.3-phase0-storyboard` | `fb9d91d` | 竖版"数据解剖片"渲染器，**已按方向决定暂停**，成果保留不删 |
 
-没有 PR（V0.2 的 PR #1 已合并关闭）。本轮不合并 main、不开 PR、不发版。
+没有 PR（V0.2 的 PR #1 已合并关闭）。
+> 历史说明：上面这句与 §4/§5/§9 中「本轮不合并 main、不开 PR、不发版」属于功能开发轮的旧边界；
+> **已被本轮发布收口取代**，以文末 §A10 为准（本轮明确授权合并 main、发 v0.3.0）。
 
 ## 2. 本轮完成的事
 
@@ -353,3 +355,48 @@ V0.2 **已发布**（tag `v0.2.0`）。本轮成果（数据接口层 + 策略�
 
 **旧门禁（改动后复跑）**：27/27、36/36、20/20；网页 e2e `resultSha256=5df18d704…` 不变；
 CLI 重建旧卡 46 笔、期末 96,652.73、`resultSha256=d3240313…`（CLI 链历史锚点，与网页锚点不同源，均验到）。
+
+## A10. V0.3.0 发布收口（2026-11-17 晚 · 家里电脑）
+
+**任务性质**：发布收口，不新增功能。目标是把 `feat/datafeed-pytdx` 经审查后合并 main 并发布 v0.3.0。
+
+**核查的指针**：本地公开仓库 `G:/stv-oss-v01`，remote=公开 OSS 仓库；功能分支 `6424ba0`（与远端一致、工作区干净）；
+main（远端）`5884e0f`；已发布 tag `v0.2.0`=`70f4918`。PR 全量列表：仅已合并关闭的 #1，无待处理 V0.3 PR，不重复创建。
+
+**发布前代码审查（无 P0/P1）**：
+- 能力注册真实存在：四组件 `ENTRY_TYPES=[maCross,breakout]` / `EXIT_TYPES=[maCross,fixedHolding,returnThreshold]`；
+  两模板白名单、四张 `composition_*.json` 样例卡、取数/渲染/验收脚本均已跟踪。
+- 未来函数：breakout 窗口 `[i-lookback,i)` 严格排除当日；maCross 用 i-1/i；止盈止损以实际买入成交价为基准。
+- 成交口径：组合模式买入/卖出均取次日开盘 `day.open`；同日多退出由 `pendingExit` 单次成交、reasons 按配置序去重；
+  `reasonOrder.includes()` 确保未选组件不生效；资产恒等式逐日断言。
+- 旧策略隔离：`engine_next/lib/`、`render_stock_macd_v122/v123.py`、`accept_macd_video_v123.py`、
+  `docs/DATA_SPEC.md`、`docs/samples/` 相对 main 零改动；`strategy_runner.cjs` 为本分支新增（main 无此文件）。
+- 安全：无私钥/token/凭据，代码无硬编码本机绝对路径，无 >1MB 跟踪文件；`xuyinzhang` 命中均为公开仓库链接。
+
+**README 修正（对外描述）**：区分三种数据来源（SIMULATED / USER_IMPORT / 自动取数），
+纠正"运行时不需要在线行情 API"的过时声明（自动取数需联网、非实时行情、不依赖付费 AI API）；
+V0.3 由"开发中"改为已发布；补组合组件、安装第 8 步、策略卡验收入口；package.json 版本 0.2.0→0.3.0。
+
+**发布前回归实测（本机，2026-11-17 18:49–18:5x）**：
+
+| 项目 | 结果 |
+|---|---|
+| `verify_strategy_engine.cjs` | 27/27 |
+| `check_strategy_card_api.cjs` | 36/36 |
+| `verify_strategy_composition.cjs` | 10/10 |
+| `check:api` | 6/6 |
+| `check:samples` | 30/30 |
+| `e2e_strategy_card_web.cjs --keep`（联网） | PASS：20/20 + 815/815 溯源 |
+| `accept_strategy_video.py --run strategy_600000_A` | 20/20 |
+| `check_accept_negative.py` | PASS（注入 3 处→15/20、退出码 1） |
+| 两次独立出片 A/B | resultSha256 + 视频 SHA 逐字节一致 |
+| 组合卡 composition_ma_ma CLI 出片 + 验收 | 20/20 |
+
+**联网取数记录**：东方财富 push2his 未复权日线；取数区间 `2023-07-06 → 2026-11-17`（815 根，含预热 121）；
+展示区间 `2024-01-02 → 2026-11-16`（694 交易日）；请求终点=今天时自动收敛到最新已收盘日 2026-11-16。
+锚点：网页 `resultSha256=5df18d704…`，CLI `resultSha256=d3240313…`、46 笔、期末 96,652.73、收益 -3.35%、回撤 3.35%，
+持有对照 144,564.35。组合卡 ma+ma：11 笔、期末 132,462.05、视频 SHA `f5b46020…`（与历史记录一致）。
+
+**跨机视频 SHA 说明**：旧模板卡的本机现场出片视频 SHA/字节数与历史文档记录不同（网页 `0781c5b0…` vs 文档 `1db24925…`；
+CLI `6b49eda0…` vs 文档 `22b17052…`），但 resultSha256 与全部验收项一致、本机两次出片逐字节一致，
+组合卡视频 SHA 亦与历史一致——属编码字节/环境的跨机差异，不影响回测结果与验收，非 P0/P1。

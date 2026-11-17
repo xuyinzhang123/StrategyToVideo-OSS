@@ -1,8 +1,8 @@
 {
   "name": "strategy-to-video-oss-v01",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
-  "description": "Strategy to Video Open Source — 本地运行的策略数据视频生成工具：MACD 演示（SIMULATED 模拟数据）+ 用户 CSV 导入（时间序列 / 分类对比 / 股票日线，V0.2）",
+  "description": "Strategy to Video Open Source — 本地优先的策略可视化与视频生成工具：MACD 演示（SIMULATED）+ 用户 CSV 导入（V0.2）+ 策略卡自动取数/回测/视频（V0.3）",
   "license": "MIT",
   "scripts": {
     "start": "node web/server.js",

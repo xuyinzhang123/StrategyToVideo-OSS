@@ -3,13 +3,18 @@
 **把交易策略回测，变成动态视频。**  
 *Turn Trading Strategy Backtests into Animated Videos.*
 
-StrategyToVideo 是一个**开源、本地运行**的策略数据视频生成项目：从数据和回测结果出发，自动绘制资金曲线、交易信号与指标面板，并输出 MP4。你可以把它下载到自己的 Windows 电脑，通过**本地网页**操作；计算、渲染和视频保存都在本机完成。
+StrategyToVideo 是一个**开源、本地优先（local-first）**的策略可视化与视频生成项目：输入股票代码与回测区间、选择或组合交易策略，自动获取历史行情、执行回测，并把资金曲线、交易信号与指标面板绘成 MP4。计算、回测、渲染和视频保存都在本机完成，通过**本地网页**操作；不依赖付费 AI API。
 
-> **English TL;DR:** StrategyToVideo runs entirely on your own Windows machine — it turns a strategy backtest into an animated MP4 through a local web page, with no cloud service and **no external AI API** required at runtime. **V0.1** (released) is a runnable reference implementation built on **SIMULATED data** with one fixed MACD demo. **V0.2.0** (released) adds user-provided CSV import for three data shapes — time series, cross-section, and stock daily OHLC (USER_IMPORT labeled) — with no source-code edits required. Stock OHLC import runs the full chain (validate → convert → MACD backtest → V1.2.3 render → independent acceptance) and a 260-trading-day sample passes 41/41 checks and delivers an MP4. **Supported stock data: unadjusted prices only** (qfq/hfq are actively rejected until execution-price accuracy is separately verified), **main-board A-shares only** (600/601/603/605 and 000/001/002/003), with **dividends supplied in a separate CSV** — without that file the result excludes cash dividends and ex-right gaps are treated as ordinary price drops. Figures produced from your own files are your own data: the tool checks format and internal consistency, **not** whether the data is real, complete, or matches your broker; backtest amounts are a local simulation, not real account fills, and not investment advice. Windows is the only verified platform.
+> **English TL;DR:** StrategyToVideo is a local-first strategy visualization and video generation tool for Windows. Enter a stock code and a backtest range, choose or compose a strategy, and it fetches historical daily bars, runs the backtest, and renders an animated MP4 — all through a local web page, with **no paid AI API**. **V0.1** (released): a fixed MACD demo on **SIMULATED data**. **V0.2.0** (released): user-provided CSV import for time series, cross-section, and stock daily OHLC (USER_IMPORT labeled). **V0.3.0** (released): **strategy card channel** — enter code + range + template, and the tool auto-fetches unadjusted daily bars (Eastmoney public HTTP), runs a deterministic backtest, and renders a strategy video, with **no CSV to prepare**; supports two templates plus composed entry/exit components. Data modes are distinct: **SIMULATED** demo data, **USER_IMPORT** CSV, and **auto-fetched historical daily bars** (network + a public data interface required). Nothing here is real-time quotes. **Supported stock data: unadjusted prices only** (qfq/hfq are actively rejected), **main-board A-shares only** (600/601/603/605 and 000/001/002/003), with **dividends supplied in a separate CSV** — without it the result excludes cash dividends and ex-right gaps are treated as ordinary price drops. The tool checks format and internal consistency, **not** whether data is real, complete, or matches your broker; backtest amounts are a local simulation, not real fills, and not investment advice. Windows is the only verified platform.
 
-**为什么选择本地运行？** 尽可能减少对云服务和付费 API 的依赖，降低重复制作视频的成本，并让数据、流程和生成结果更容易复现。**运行时不需要 AI 模型、外部 AI API 或在线行情 API**；首次安装依赖通常需要联网。本地网页使用的 HTTP API 只在本机提供服务，并非云端网站。
+**为什么选择本地运行？** 尽可能减少对云服务和付费 API 的依赖，降低重复制作视频的成本，并让数据、流程和生成结果更容易复现。回测计算与视频渲染**不需要 AI 模型或付费 API**，依赖安装完成后可离线进行；但**自动取数模式需要联网**访问东方财富公开历史行情接口（详见下文数据来源）。本地网页使用的 HTTP API 只在本机提供服务，并非云端网站。
 
-> **当前版本状态：** **V0.1 已发布** —— 使用**模拟数据**运行一套固定 MACD 策略，对比“MACD 金叉买入、死叉卖出”和“买入后长期持有”，并生成演示视频。**V0.2 已发布（v0.2.0，从源码运行即可用）** —— 新增**用户 CSV 导入**通道（时间序列 / 分类对比 / 股票日线三类），可在网页内选文件、映射字段并生成视频，**无需修改源码**；股票日线通道走「校验 → MACD 回测 → V1.2.3 渲染 → 独立验收」全链路并交付 MP4（260 日样例 41/41 通过；V0.1 演示继续使用 V1.2.2 封版路径，40/40 通过，画面与时间轴口径已冻结）。复权口径只支持未复权 + 分红表。网页端自定义策略、自然语言生成策略仍不支持；开发中的 CLI 已支持两张策略卡（见下）。
+> **当前版本状态：**
+> - **V0.1 已发布** —— **模拟数据** + 固定 MACD 策略演示（金叉买/死叉卖 vs 长期持有），生成演示视频。
+> - **V0.2 已发布（v0.2.0）** —— **用户 CSV 导入**（时间序列 / 分类对比 / 股票日线），网页选文件、映射字段出片，无需改源码。
+> - **V0.3 已发布（v0.3.0）** —— **策略卡通道**：网页填证券代码 + 回测区间 + 策略模板即可出片，**无需准备 CSV**；后端自动取真实未复权日线 → 统一门禁 → 确定性回测 → 通用策略视频。支持 `macd_cross`、`close_buy_open_sell` 两张模板，以及均线交叉 / N 日突破 / 固定持有 / 止盈止损四个可组合组件。网页路径实测 20/20 验收、815/815 溯源。**自动取数依赖网络**；服务仍为本机 127.0.0.1，未做公开部署。
+>
+> 网页端自定义新策略、自然语言生成策略**尚不支持**（自然语言翻译层在规划中）。复权口径只支持未复权 + 分红表。
 
 ## 看看它能生成什么
 
@@ -35,19 +40,22 @@ StrategyToVideo 是一个**开源、本地运行**的策略数据视频生成项
 - **契约先行、错误可读：** 完整输入契约见 [`docs/DATA_SPEC.md`](docs/DATA_SPEC.md)，样例与预期结果见 [`docs/samples/`](docs/samples/)。格式不合法时会返回**明确错误码与行号**（如千分位未加引号、行字段数不一致、日期乱序、重复标签），而不是静默出错。
 - **数据来源标注：** 导入类视频画面会标注文件名、导入时间与“用户导入”徽标，不会把用户文件伪装成官方行情。
 
-**开发中（已接入本机网页）：策略卡直出片**
+**V0.3 已发布（v0.3.0，策略卡直出片）**
 
 - 网页里选「策略回测视频（自动取数）」，填**证券代码 + 区间 + 策略模板**，点击执行即可：
-  后端自动取真实未复权日线 → 统一门禁 → 统一回测 → 策略视频，**不需要你准备 CSV**。
-- 当前支持两张策略模板：`macd_cross`（金叉买入 / 死叉卖出，并与长期持有对照）与
+  后端自动取真实未复权日线 → 统一门禁 → 确定性回测 → 策略视频，**不需要你准备 CSV**。
+- 内置两张策略模板：`macd_cross`（金叉买入 / 死叉卖出，并与长期持有对照）与
   `close_buy_open_sell`（尾盘买入 / 次日开盘卖出，可带开盘跳空过滤）。
+- 四个可组合组件可拼成策略：均线交叉（`maCross`，入场/退出）、N 日突破（`breakout`，入场）、
+  固定持有天数（`fixedHolding`，退出）、止盈止损（`returnThreshold`，退出）；
+  组合为「一个入场 + 1~3 个退出（任一触发即退出）」，信号收盘确认、下一交易日开盘成交。
 - 视频只读统一 `backtest_result.json`：价格曲线、买卖标记、持仓区间、策略资产、当前/期末指标与来源/免责声明。
 - 任务仍是「创建 → 人工确认执行」两步；执行完可预览/下载 MP4，并可下载本次实际使用的日线 CSV
   与逐行溯源清单。
 - 边界：仅沪深主板；复权口径固定未复权；不提供分红表时结果不含现金分红；取数依赖东方财富公开接口
   （网络不可用时任务直接失败，不会产出空片）；仍是**本机 127.0.0.1**，未做公开部署。
 
-这是一套**流程演示与视频生成工具**，不是已支持任意策略的量化交易平台。V0.1 的标的、时间区间、本金和策略参数均为固定配置；V0.2 支持**通用图表类**与**股票日线（USER_IMPORT）**数据的导入出片，股票通道由 V1.2.3 独立验收把关；开发中的**策略卡通道**已接入本机网页，支持两张模板自动取数出片（未通过首版验收则不交付）。
+这是一套**流程演示与视频生成工具**，不是已支持任意策略的量化交易平台。V0.1 的标的、时间区间、本金和策略参数均为固定配置；V0.2 支持**通用图表类**与**股票日线（USER_IMPORT）**数据的导入出片，股票通道由 V1.2.3 独立验收把关；V0.3 的**策略卡通道**已接入本机网页，支持两张内置模板与组件组合自动取数出片（未通过独立验收则不交付）。
 
 **你需要准备什么样的数据**
 
@@ -79,6 +87,7 @@ npm start
 5. 选择 **MACD 演示策略（模拟数据）** → **创建任务** → **确认并生成视频**。完成后即可在本地网页预览或下载 MP4。
 6. （V0.2）也可选择 **导入 CSV · 时间序列**、**导入 CSV · 分类对比** 或 **导入 CSV · 股票日线**，选一个本地 CSV，确认字段映射后创建任务。股票日线还需填写 6 位证券代码（**仅沪深主板**，如 600000）、复权口径（**仅未复权**）与可选分红 CSV。想先试通流程，可直接用 [`docs/samples/`](docs/samples/) 里的样例文件。
 7. （V0.2）出片后，工作区会显示**数据溯源**：时间序列/分类对比的每个数据点、股票日线的每根 K 线与每条分红记录，都对应留档 CSV 的第几行、原样内容是什么，并可下载留档的原始 CSV。股票视频里的金额与信号是回测按这些输入推导的，不是 CSV 里的原始数字——溯源清单核对的是输入本身。删除任务会连同原始 CSV 与视频一起清理。
+8. （V0.3）也可选择 **策略回测视频（自动取数）**：填证券代码（如 600000）、回测区间与策略模板，确认后创建任务并执行。后端会**联网**从东方财富取该区间的未复权日线（自动向前多取一段做指标预热），走统一门禁与确定性回测后生成视频。出片后可预览/下载 MP4，并下载本次实际使用的日线 CSV 与逐行溯源清单。**首次使用需联网**；若无需自动取数，可继续用第 6 步的 CSV 导入通道（该通道离线可用）。
 
 数据留档与可复现性：创建任务时，原始 CSV 会原样存到 `web/tasks/<任务ID>/source.csv`（只在本机，已被 `.gitignore` 排除），并计算 SHA-256；视频页脚显示该指纹前 12 位。**在同一台机器、同一套依赖下**，同一份 CSV 重复出片应得到**逐字节相同**的 MP4，可用 `npm run check:determinism` 自行对拍；换机器或换系统字体版本可能出现像素级差异（画面内容、金额与验收结论不变）。样例规则与股票溯源的断言入口是 `npm run check:samples`，`/api/health` 能力口径的断言入口是 `npm run check:api`。
 
@@ -104,16 +113,28 @@ node tools/gen_demo_data.cjs
 | --- | --- | --- |
 | **V0.1** | 本地网页 + 固定 MACD 回测 + 模拟数据自动出片 | 已发布 |
 | **V0.2** | 允许导入自己的 CSV 数据，沿用现有模板生成视频 | **已发布 v0.2.0**（时间序列 / 分类对比 / 股票日线均可出片；股票日线走 V1.2.3 渲染/验收，复权口径仅支持未复权 + 分红表，见下） |
-| **V0.3（开发中）** | 策略卡 → 自动取数 → 统一回测 → 通用策略视频 | **本机网页已接入**：填代码+区间+模板即可出片（两张模板；真实 600000 网页路径 20/20 验收、815/815 溯源）；公开部署未做 |
-| **后续** | 增加可组合策略模板；将自然语言作为“生成策略卡”的翻译层；网页任务队列与公开部署 | 探索中 |
+| **V0.3** | 策略卡 → 自动取数 → 统一回测 → 通用策略视频 | **已发布 v0.3.0**（两张模板 + 四个可组合组件；真实 600000 网页路径 20/20 验收、815/815 溯源）；公开部署未做 |
+| **V0.4（规划中）** | 自然语言 → 结构化策略卡 → 用户确认 → 回测 → 视频 | 探索中，尚未开发 |
 
-**长期方向：** 逐步把“输入策略 → 自动取数 → 回测 → 视频”做成易用、可复现的工作流；**网页端的自定义策略仍属于未来功能**，当前仅两张内置模板可用。AI 可以在未来帮助理解策略或组织流程，但不应成为每次生成视频都必须调用的收费环节。上述路线图不是已上线功能，也不承诺发布时间。
+**长期方向：** 逐步把“输入策略 → 自动取数 → 回测 → 视频”做成易用、可复现的工作流；**自然语言生成策略属于后续功能**，当前仅两张内置模板与四个可组合组件可用。AI 将来只负责把你的描述翻译成策略卡供你确认，**不参与实际回测计算**，也不应是每次生成视频都必须调用的收费环节。上述路线图不是已上线功能，也不承诺发布时间。
 
 ## 数据说明与当前限制
+
+本项目有三种数据来源，**必须区分**，不要把一种说成另一种：
+
+| 数据模式 | 来源 | 是否需要网络 | 画面标注 |
+| --- | --- | --- | --- |
+| **SIMULATED 模拟** | 随包提供的固定种子生成数据 | 否（随包自带） | 模拟数据 |
+| **USER_IMPORT 用户导入** | 你选择并映射的本地 CSV | 否 | 用户导入 + 文件名 |
+| **自动取数（V0.3 策略卡）** | 东方财富公开历史日线接口 | **是**（首次取数需联网） | 数据来源 + 区间 + 免责声明 |
+
+三种模式提供的都是**历史日线数据，不是实时行情**；自动取数只依赖公开的免费 HTTP 数据接口，**不依赖付费 AI API**。取数失败（离线或被代理拦截）时任务直接失败，不会产出空片。复权口径固定为**未复权**；现金分红需你另行提供三段式分红 CSV，未提供时回测结果不含现金分红，除权跳空按普通价格下跌处理。
 
 **SIMULATED 模拟数据声明：** V0.1 的行情、交易日历和现金分红由 [`tools/gen_demo_data.cjs`](tools/gen_demo_data.cjs) 使用固定种子生成，存放在 `output/demo_macd_simulated/01_data/`。它们**不是任何真实证券的历史数据**；视频中的收益、日期、金额及交易信号均不代表真实投资结果，不能用于投资分析或策略评价，也不构成投资建议。
 
 **用户导入数据的声明：** V0.2 导入通道只做**格式校验与内部一致性校验**，不核对数据真实性、完整性与复权口径。视频画面标注“用户导入”及文件名，**收益与结论由你提供的数据决定，项目不对其准确性负责**，同样不构成投资建议。
+
+**自动取数数据的声明：** V0.3 策略卡通道通过东方财富公开接口获取**未复权历史日线**，按 DATA_SPEC 归一化与门禁校验；它不保证数据完整或与券商一致，也不自动补分红。回测金额是本地确定性撮合的**模拟结果**，不是真实成交，**不构成投资建议**。
 
 ### 股票日线：需要什么、结果意味着什么
 
@@ -138,7 +159,8 @@ node tools/gen_demo_data.cjs
 
 目前**不支持**以下内容：
 
-- **复权行情（qfq / hfq）**（原因见上）、**网页端自定义新策略、自然语言生成策略。** 网页端策略模板仍为固定实现，策略卡通道只开放 `macd_cross` 与 `close_buy_open_sell` 两张模板，参数范围也受锁定（如 MACD 固定 12/26/9）。股票口径的拒绝码为 `E_ADJUST_UNVERIFIED`，契约见 [`docs/DATA_SPEC.md`](docs/DATA_SPEC.md) §7.2。
+- **复权行情（qfq / hfq）**（原因见上）、**网页端自定义新策略、自然语言生成策略。** 网页端策略卡通道开放 `macd_cross`、`close_buy_open_sell` 两张模板，并支持上述四个组件的固定组合；不支持任意布尔策略表达式、加仓、分批止盈，参数范围受锁定（如 MACD 固定 12/26/9）。股票口径的拒绝码为 `E_ADJUST_UNVERIFIED`，契约见 [`docs/DATA_SPEC.md`](docs/DATA_SPEC.md) §7.2。
+- **实时行情与自动补分红。** 自动取数只提供历史日线，不含实时/盘中行情，也不自动抓取分红公告；需精确计入分红时请自行提供三段式分红 CSV。
 - **非 Windows 平台的正式支持。** Linux/macOS 的字体和编码环境尚未完成适配验证。
 
 
@@ -146,16 +168,17 @@ node tools/gen_demo_data.cjs
 
 ```text
 本地浏览器（127.0.0.1:8080）
-  → 选择策略 / 选择 CSV、确认字段映射
+  → 三条入口：① 固定 MACD 演示  ② 导入 CSV  ③ 策略卡（代码+区间+模板）
   → 创建任务、人工确认执行
-  → 本地任务管理与策略适配器
-  → 数据校验与归一化（导入通道）／MACD 回测（演示通道）
+  → 本地任务管理与对应适配器
+  → 数据准备：模拟数据 / 用户 CSV 归一化 / 联网自动取数（策略卡）
+  → 数据门禁校验 → 确定性回测（MACD 或可组合策略）
   → 视频逐帧渲染与编码（Python / FFmpeg）
   → 独立一致性验收（报告与画面勾稽）
   → 本地预览与 MP4 下载
 ```
 
-这里的任务编排是确定性代码，**不是运行中的 AI Agent**。本地 HTTP 接口（如 `/api/tasks`）可供二次开发使用，但项目不调用外部 AI 或行情服务。
+这里的任务编排与回测计算都是**确定性代码，不是运行中的 AI Agent**。本地 HTTP 接口（如 `/api/tasks`）可供二次开发使用。项目**不调用付费 AI API**；唯一的网络调用是策略卡模式的**东方财富公开历史行情接口**（免费、非实时），其余流程在依赖安装完成后均可离线进行。
 
 - **数据示例：** `output/demo_macd_simulated/01_data/`
 - **导入契约与样例：** `docs/DATA_SPEC.md`、`docs/samples/`
@@ -185,7 +208,17 @@ python engine_next/tests/accept_macd_video_v122.py --run web_<taskId> --source w
 python engine_next/tests/accept_macd_video_v123.py --run web_<taskId> --source web_<taskId>
 ```
 
-MACD 通道的校验包括回测金额与视频结果、交易信号与成交、T+1 执行日期、时间轴、抽样帧对账及画面布局等；导入通道的校验是渲染报告与归一化模型的勾稽（类别、行数、序列/条形数量、输出字节数），不一致即拒绝交付。项目目前未随包提供 `node --test` 测试套件；上述脚本是当前的验收入口。
+策略卡通道（V0.3）另有独立验收：策略引擎契约、策略卡接口、网页端到端与通用策略视频 20 项检查（成交价来自行情、持股守恒、资产恒等式、报告勾稽、画面推进），并含反向验证（注入故障后应失败）：
+
+```powershell
+node engine_next/tests/verify_strategy_engine.cjs
+node tools/check_strategy_card_api.cjs
+npm run e2e:card
+python engine_next/tests/accept_strategy_video.py --run strategy_600000_A
+python tools/check_accept_negative.py
+```
+
+其中策略引擎契约（27 项）、策略卡接口（36 项）与离线逆向验证无需网络；`npm run e2e:card` 与 `accept_strategy_video` 需要本地已有一次策略卡出片（可先在网页生成，或按 `docs/dev/CURRENT_STATE.md` 用 CLI 生成）。MACD 通道的校验包括回测金额与视频结果、交易信号与成交、T+1 执行日期、时间轴、抽样帧对账及画面布局等；导入通道的校验是渲染报告与归一化模型的勾稽（类别、行数、序列/条形数量、输出字节数），不一致即拒绝交付。项目目前未随包提供 `node --test` 测试套件；上述脚本是当前的验收入口。
 
 
 ## 开源许可与第三方组件
