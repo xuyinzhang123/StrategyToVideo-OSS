@@ -9,6 +9,7 @@
  *   - entry/exit 均由 strategy_conditions.buildConditions 生成；
  *   - fixedHolding 以「买入成交日为第 1 日」计完整交易日，第 N+1 日开盘退出；
  *   - returnThreshold 以实际买入成交价为基准，收盘触及，次开盘成交；
+ *   - trailingStop 以持仓期最高收盘为基准，回撤达阈值，次开盘成交；
  *   - 同日多退出只成交一次，reasons 按配置顺序完整保留。
  * ==========================================================================*/
 'use strict';
@@ -129,7 +130,8 @@ function runComposedRunner(days, opts) {
   const tIdx = new Map(tradable.map((d, i) => [d.date, i]));
 
   const st = { cash: initialCapital, shares: 0, lotOpenDate: null, buyPrice: null, buyIndex: null,
-    lastClose: null, divReceivable: 0, divTaxBase: 0, oddLotDropped: 0, events: [], entitlements: [] };
+    peakClose: null, lastClose: null, divReceivable: 0, divTaxBase: 0, oddLotDropped: 0,
+    events: [], entitlements: [] };
   const daily = [], trades = [], signals = [], decisions = [];
   let seq = 0, fees = { commission: 0, stampDuty: 0, transferFee: 0 };
   let divTaxTotal = 0, divGrossTotal = 0, divPaidTotal = 0;
@@ -227,6 +229,13 @@ function runComposedRunner(days, opts) {
           else if (rule.stopLoss !== null && d.close <= st.buyPrice * (1 - rule.stopLoss))
             reasons.push({ type: 'returnThreshold', reason: 'stopLoss_' + Math.round(rule.stopLoss * 1000) / 10 + 'pct' });
         }
+        // 移动止损：自买入成交日起跟踪持仓期最高收盘，回撤达阈值则收盘确认退出
+        // 峰值只用已收盘价更新；当日创新高时 close <= peak*(1-dd) 必为假，不会用当日数据反推当日信号
+        if (rule.exitTrailing && st.peakClose !== null) {
+          if (d.close > st.peakClose) st.peakClose = d.close;
+          if (d.close <= st.peakClose * (1 - rule.trailingDrawdown))
+            reasons.push({ type: 'trailingStop', reason: 'trailingStop_' + Math.round(rule.trailingDrawdown * 1000) / 10 + 'pct' });
+        }
         // 按配置顺序去重排序，同一类型只保留一条（同日多触发只成交一次）
         if (reasons.length) {
           const uniq = new Map();
@@ -269,6 +278,7 @@ function runComposedRunner(days, opts) {
       st.cash = r2(st.cash - amount - f.total);
       fees.commission += f.commission; fees.stampDuty += f.stampDuty; fees.transferFee += f.transferFee;
       st.shares = n; st.lotOpenDate = day.date; st.buyPrice = day.open; st.buyIndex = tIdx.get(day.date);
+      st.peakClose = day.open;
       seq++;
       trades.push({ seq, side: 'BUY', date: day.date, price: +day.open.toFixed(4), shares: n,
         amount: r2(amount), commission: f.commission, stampDuty: f.stampDuty, transferFee: f.transferFee,
@@ -310,6 +320,7 @@ function runComposedRunner(days, opts) {
         cashBefore: r2(cashBefore), cashAfter: r2(st.cash), sharesAfter: 0, rates: f.rates, note });
       row.actions.push('SELL'); row.fee += f.total; row.dividendTax += dt.tax;
       st.divTaxBase = 0; st.lotOpenDate = null; st.buyPrice = null; st.buyIndex = null;
+      st.peakClose = null;
       for (let k = signals.length - 1; k >= 0; k--) {
         if (signals[k].signalDate === signalDate && signals[k].type === 'EXIT' && signals[k].execDate === null) {
           signals[k].execDate = day.date; signals[k].execPrice = +day.open.toFixed(4);
