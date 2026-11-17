@@ -197,7 +197,7 @@ function pct(v) {
 }
 
 const ENTRY_LABEL = {
-  maCross: (p) => `MA${p.fast} 上穿 MA${p.slow}（均线金叉）`,
+  maCross: (p) => `MA${p.fast} 上穿 MA${p.slow} 金叉`,
   breakout: (p) => `收盘价突破前 ${p.lookback} 个交易日最高价`,
 };
 
@@ -295,6 +295,8 @@ function parseStrategyText(text) {
     issues.push(issue('error', 'E_NOT_SUPPORTED',
       `当前只支持『均线金叉 / N 日突破 / 固定持有 / 止盈止损』四类条件；以下内容暂不支持：${unsupported.map((u) => u.term).join('、')}。`,
       { unsupported: unsupported.map((u) => u.term) }));
+    // 只报根因：已有非白名单成分时不再追加「没识别到入场」之类的派生报错，避免误导
+    return finish();
   }
 
   // ①-b 证券代码（可选，只作建议）
