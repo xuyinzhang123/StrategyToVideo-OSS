@@ -1,6 +1,6 @@
 'use strict';
 /*
- * 黄金 vs 黄金股ETF 归一化走势对比视频（A 类 timeseries 多序列）
+ * 黄金 vs 黄金股标的归一化走势对比视频（A 类 timeseries 多序列）
  * ---------------------------------------------------------------------------
  * 目的：不启网页、不重写任何校验/渲染/溯源逻辑，直接复用封版适配器
  *       web/src/adapters/genericChart.cjs 的 timeseries.execute()，把一份
@@ -31,12 +31,14 @@ function parseArgs(argv) {
     csv: path.join(ROOT, 'datafeed', 'out', 'gold_compare', 'gold_vs_goldstock.csv'),
     title: 'COMEX黄金 vs 黄金股ETF 走势对比',
     unit: '归一化指数（起点=100）',
+    note: '东方财富真实日线收盘价，各自归一化到起点=100；金价 COMEX GC00Y，对比标的 517400',
   };
   for (let i = 0; i < argv.length; i += 1) {
     if (argv[i] === '--run') out.run = argv[i + 1];
     if (argv[i] === '--csv') out.csv = path.resolve(argv[i + 1]);
     if (argv[i] === '--title') out.title = argv[i + 1];
     if (argv[i] === '--unit') out.unit = argv[i + 1];
+    if (argv[i] === '--note') out.note = argv[i + 1];
   }
   return out;
 }
@@ -64,7 +66,7 @@ async function main() {
   const v = validateImport({
     dataClass: 'timeseries', csvText, fileName,
     title: a.title, unit: a.unit, importedAt: FIXED_IMPORTED_AT,
-    sourceNote: '东方财富真实日线收盘价，各自归一化到起点=100；金价 COMEX GC00Y，黄金股ETF 517400',
+    sourceNote: a.note,
     mapping: { date: 'date', series: 'series', value: 'value' },
   });
   if (!v.ok) {
