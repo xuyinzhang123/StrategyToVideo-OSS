@@ -11,6 +11,8 @@
     "check:determinism": "node tools/check_determinism.cjs",
     "check:api": "node tools/check_api_contract.cjs",
     "check:card": "node tools/check_strategy_card_api.cjs",
+    "check:accept": "python engine_next/tests/accept_strategy_video.py --run strategy_600000_A",
+    "check:accept:neg": "python tools/check_accept_negative.py",
     "e2e:card": "node tools/e2e_strategy_card_web.cjs"
   },
   "engines": {

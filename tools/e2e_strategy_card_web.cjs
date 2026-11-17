@@ -149,7 +149,7 @@ async function main() {
     console.log('  视频        ：', r.video && `${r.video.width}x${r.video.height}@${r.video.fps} ${r.video.durationSec}s ${r.video.frames} 帧`,
       `${buf.length} 字节`);
     console.log('  视频 SHA    ：', String(r.video && r.video.sha256).slice(0, 16) + '…');
-    console.log('  首版验收    ：', r.verification && `PASS ${r.verification.pass}/${r.verification.total}`);
+    console.log('  独立验收    ：', r.verification && `PASS ${r.verification.pass}/${r.verification.total}`);
     if (trace.status !== 200 || !trace.body || !trace.body.ok) {
       throw new Error(`溯源接口不可用：HTTP ${trace.status} ${JSON.stringify(trace.body)}`);
     }
@@ -157,7 +157,7 @@ async function main() {
     console.log('  溯源        ：', `${tr.verification.verified}/${tr.verification.points} 条记录按行号回读一致`);
 
     if (r.verification && r.verification.pass !== r.verification.total) {
-      throw new Error('首版验收未全通过');
+      throw new Error('独立验收未全通过');
     }
     console.log('\n[e2e] 策略卡网页链路 PASS');
 

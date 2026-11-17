@@ -4,7 +4,7 @@
 //
 // 与 stock_ohlc 的区别：用户不再上传 CSV，而是给出「证券代码 + 区间 + 模板 + 少量参数」，
 // 由本适配器自动取东方财富未复权日线，再走与 CLI（tools/run_strategy_video.cjs）完全相同的
-// 校验 → runStrategy → 通用策略渲染 → 首版验收。
+// 校验 → runStrategy → 通用策略渲染 → 独立验收。
 //
 // 约束：
 //   1. 不重写回测逻辑：一律调用 engine_next/strategy_engine.cjs 的 runStrategy。
@@ -36,7 +36,7 @@ const STEPS = [
   '统一门禁校验（DATA_SPEC）',
   '策略回测（统一结果契约）',
   '通用策略视频渲染',
-  '首版独立验收（10 项）',
+  '独立验收（20 项）',
 ];
 
 // 取数窗口递增：MACD 预热需要 35 根以上，遇到长假/停牌给更大余量。
@@ -69,7 +69,7 @@ function resolvePython() {
   return null;
 }
 
-// 验收脚本输出：`[PASS] 名称` / `[FAIL] 名称  <- 详情` / 末行「策略视频验收：10/10 通过」
+// 验收脚本输出：`[PASS] 名称` / `[FAIL] 名称  <- 详情` / 末行「策略视频验收：20/20 通过」
 function parseAccept(out) {
   const text = String(out || '');
   const m = /策略视频验收：(\d+)\s*\/\s*(\d+)\s*通过/.exec(text);
@@ -291,7 +291,7 @@ async function execute(ctx) {
   logWrite(`render ok: bytes=${fs.statSync(mp4).size}`);
   onStep(4, 'done');
 
-  // ---- 5) 首版验收 ----
+  // ---- 5) 独立验收 ----
   onStep(5, 'running');
   const ac = await runCommand(python, [ACCEPT_SCRIPT, '--run', runId]);
   const acc = parseAccept(ac.out + '\n' + (ac.err || ''));
@@ -302,12 +302,12 @@ async function execute(ctx) {
     pass: acc.pass,
     total: acc.total,
     items: acc.failures,
-    note: '首版 10 项：结果契约自洽 + 报告勾稽 + 主图非空；像素级细验为后续独立任务',
+    note: '20 项：结果契约自洽（成交价/持股守恒/资产恒等式）+ 报告勾稽 + 画面推进；像素级细验为后续独立任务',
   }, null, 2), 'utf8');
   if (ac.code !== 0 || (acc.total !== null && acc.pass !== acc.total)) {
     throw {
       code: 'E_VERIFY_FAILED',
-      message: `策略视频首版验收未通过（PASS ${acc.pass === null ? '?' : acc.pass} / 共 ${acc.total === null ? '?' : acc.total}）`
+      message: `策略视频独立验收未通过（PASS ${acc.pass === null ? '?' : acc.pass} / 共 ${acc.total === null ? '?' : acc.total}）`
         + (acc.failures.length ? `：${acc.failures.slice(0, 3).map((f) => f.name).join('；')}` : '')
         + '。明细见任务目录 accept_failures.json 与 engine.log。',
       acceptance: { pass: acc.pass, fail: acc.total === null ? null : acc.total - acc.pass },

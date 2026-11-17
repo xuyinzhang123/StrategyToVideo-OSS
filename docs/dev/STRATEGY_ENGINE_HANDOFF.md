@@ -62,7 +62,8 @@
 | 项目 | 结果 |
 |---|---|
 | `node engine_next/tests/verify_strategy_engine.cjs` | **27/27**（含锚点 7/7、新内核 8/8、market 对齐 1/1） |
-| `python engine_next/tests/accept_strategy_video.py --run strategy_600000_A` | **10/10**（契约/日期/指标/规格/SHA/画面非空） |
+| `python engine_next/tests/accept_strategy_video.py --run strategy_600000_A` | **20/20**（日期对齐/成交价来自行情/持股守恒/资产恒等式/报告勾稽/规格 SHA/画面推进） |
+| `python tools/check_accept_negative.py` | **PASS** 反向验证（注入 3 处故障 → 15/20、退出码 1） |
 | `python datafeed/eastmoney_fetch.py --selftest` | 20/20 |
 | `node datafeed/tests/verify_eastmoney_e2e.cjs` | 8/8 |
 | `python datafeed/pytdx_fetch.py --selftest` | 13/13 |
@@ -73,7 +74,8 @@
 
 ## 5. 已知边界 / 待办
 
-1. **未接网页**：网页仍是 V0.2 固定 MACD 链路。策略卡目前通过 CLI/库调用。
+1. ~~未接网页~~ **已接网页**（2026-11-17 傍晚）：`strategy_card` 通道，填代码+区间+模板即可出片，
+   见 `docs/dev/CURRENT_STATE.md §A7`；本文件只讲引擎层。
 2. **`auctionFilter` 的持有语义**：HOLD 后会在**后续每个交易日**开盘重新评估跳空，
    一旦 `gap < holdIfGte` 即卖出；展示区间最后交易日无条件开盘平仓。这是首版口径，
    若用户想要“HOLD 后固定持有 N 日”或“只判断一次”，需新增字段（如 `maxHoldDays`），不改默认。
@@ -85,13 +87,14 @@
 
 ## 6. 下一步建议
 
-1. 网页接入策略卡表单：选模板 + 填参数 + 选区间，后台自动取数并排队出片（不再要求 CSV）。
-2. 把 `tools/run_strategy_video.cjs` 的串联逻辑抽成 `web/src/strategyRunner.cjs` 或任务适配器，
-   接 `/api/tasks` 与前端进度/预览/下载；仍只监听 127.0.0.1，公开部署另议。
-3. 为通用策略片补独立验收脚本（结果指纹、买卖点与 trades 对齐、指标勾稽、帧数与尺寸），
-   不套 MACD 41 项；MACD 模板等价替换保持 41/41 是后续单独任务。
-4. 增加 3~5 个可组合模板（均线交叉、突破、固定持有天数、涨跌幅阈值），
-   自然语言只作为“生成策略卡”的翻译层，必须人工确认后才执行。
+1. ~~网页接入策略卡表单~~ **已完成**（§A7：自动取数 + 任务通道 + 表单 + 预览下载）。
+2. ~~通用策略片独立验收~~ **已完成 20 项**（§A8：成交价来自行情、持股守恒、资产恒等式、
+   报告勾稽、画面推进；`tools/check_accept_negative.py` 证明会失败，不是空跑）。
+   剩余像素级细验（买卖标记坐标、字体遮挡）另立任务，不塞进这 20 项。
+3. **增加 3~5 个可组合模板**（下一个最高优先）：均线交叉、突破、固定持有天数、涨跌幅阈值。
+   改 `strategy_runner.cjs` 的退出条件前先设计；改完必须复跑 `verify_strategy_engine.cjs`
+   27/27、600000 的 46 笔锚点与 20 项验收，`resultSha256` 应保持不变（新增可选参数默认关闭）。
+4. 自然语言只作为“生成策略卡”的翻译层，必须人工确认后才执行；不做任意代码策略。
 5. 如需更细的竞价情绪，另立数据契约（竞价量/未匹配量/逐笔委托），不塞进日线策略卡。
 
 ## 7. 硬边界（继续遵守）
