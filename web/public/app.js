@@ -1223,6 +1223,16 @@
             + ' · 收益 ' + (Number(r0.totalReturn || 0) * 100).toFixed(2) + '%'
             + ' · 最大回撤 ' + (Number(r0.maxDD || 0) * 100).toFixed(2) + '%'
             + ' · ' + r0.trades + ' 笔交易</div>';
+          // 0 笔不是失败：说明这次区间内没有任何一次入场成立，期末资产等于初始资金。
+          // 用中性提示（不是红色报错样式），否则用户会当成程序出错。
+          if (Number(r0.trades) === 0) {
+            h0 += '<p class="warn-box"><b>本区间内没有任何一笔交易成立</b>：'
+              + '这不是运行失败，期末资产等于初始资金（¥ '
+              + Number(r0.final).toLocaleString('en-US', { maximumFractionDigits: 2 })
+              + '），资金没有被交易消耗。'
+              + '通常是因为入场条件太严——多条件「与」尤其容易一次都不触发；'
+              + '可以放宽参数，或去掉一个入场条件后重新创建任务。</p>';
+          }
         }
         if (r0.holdFinal != null) {
           h0 += '<div><b>同期长期持有</b>：¥ ' + Number(r0.holdFinal).toLocaleString('en-US', { maximumFractionDigits: 2 }) + '</div>';
