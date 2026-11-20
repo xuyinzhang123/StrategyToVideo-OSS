@@ -403,7 +403,17 @@
       updateSummary();
     } else if (tpl === 'close_buy_open_sell') {
       box.innerHTML = '<div class="field"><label>MACD 参数</label>'
-        + '<input type="text" value="12 / 26 / 9（已锁定）" disabled /></div>';
+        + '<input type="text" value="12 / 26 / 9（已锁定）" disabled /></div>'
+        + '<div class="field"><label>入场信号</label>'
+        + '<select id="f-entry">'
+        + '<option value="macd_golden">MACD 金叉日尾盘买入</option>'
+        + '<option value="always">每个交易日尾盘买入</option>'
+        + '</select>'
+        + '<span class="field-hint">金叉按 14:57 收盘集合竞价结果（日线 close）买入。</span></div>'
+        + '<div class="field"><label>开盘跳空阈值（%）</label>'
+        + '<input type="number" id="f-hold" min="0" max="20" step="0.1" placeholder="留空 = 不开竞价过滤" />'
+        + '<span class="field-hint">9:25 集合竞价结果（日线 open）较昨收涨幅达到该阈值则继续持有，否则开盘卖出。'
+        + '留空表示每天开盘卖出。阈值过高时可能整段区间都不触发。</span></div>';
     }
   }
 
