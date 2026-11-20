@@ -650,12 +650,11 @@ SHA `0781c5b098ca5fa6…`（与 V0.3.0 发布时同机实测一致）。前端�
   探针脚本用完即删，仓库里没有留任何测试钩子（`git status` 只有 `web/public/app.js` 一处改动）。
 - 组合验收第 16 项（严格 AND 零入场：不报错、不产生交易、不伪造信号、期末恒本金）保持原样未放宽。
 
-### 3) 发版准备（**未发布**）
+### 3) 发版完成（**已发布 v0.5.0**）
 
-- `package.json` 版本 → `0.5.0`；README 已按「本版新增 / 待发布」口径补 V0.5 段落，
-  **未写任何「已发布」**；能力边界未弱化（仍强调不做通用策略理解、不保证收益、不做「或」入场与选股池）。
-- 发布动作（PR #4 → Squash Merge → tag `v0.5.0` → Release）**未执行**：
-  本机 `gh` 不可用，`git credential fill` 取 token 的授权请求在本次会话中超时未获批，
-  按硬约束「拿不到 token 立即停止发版、不尝试其他认证方式」停在准备阶段。
-- 交接：门禁已全绿（含本机 `e2e:card`），token 可用时可直接走 PR/merge/tag/Release；
-  合并成功后把 README 的「待发布」统一改成「已发布 v0.5.0」，并在本文件补一条发布记录。
+- `package.json` 版本 `0.5.0`；`main` 已通过 Squash Merge PR #4 前进到 `cac1ab89d42558ef96cb07bdf859b67ee06ba71d`。
+- PR #4：https://github.com/xuyinzhang123/StrategyToVideo-OSS/pull/4 ，`merged=true`，6 提交 / 15 文件 / +890 -101，`mergeable_state=clean`，无 review comments 与 issue comments。
+- tag `v0.5.0` 为 annotated tag，指向同一合并提交 `cac1ab89…`；Release 已发布（非 draft、非 prerelease）：https://github.com/xuyinzhang123/StrategyToVideo-OSS/releases/tag/v0.5.0 。
+- README 与本文件的「待发布」已统一改为「已发布 v0.5.0」；能力边界未弱化（仍强调不做通用策略理解、不保证收益、不做「或」入场与选股池）。
+- 门禁沿用已验收 HEAD `6852245` 的记录（引擎 27/27、MACD 21/21、组合 16/16、翻译 30/30、确认 16/16、卡接口 36/36、API 6/6、样例 30/30、策略视频 20/20、反向验证 PASS），按任务书未重跑；GitHub 侧未配置 CI，无 check-runs。
+- 凭据插曲：09:38 首次合并因系统 token 过期返回 `Bad credentials`；用户批准官方授权刷新后于 09:53 重试成功。未索要 PAT、未写 token 入库、未直推 main。
