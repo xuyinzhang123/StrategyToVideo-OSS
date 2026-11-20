@@ -1,0 +1,55 @@
+name: Offline gates
+
+# 只跑确定性、离线、不需要渲染产物的门禁。
+# 故意不纳入 e2e:card / check:determinism / check:accept：
+#   - e2e:card 依赖外部行情接口，网络抖动会让 PR 误报失败；
+#   - 后两者需要 Pillow / imageio-ffmpeg 与已渲染的 MP4，属于出片验收，不是 PR 前置门禁。
+# 这些命令在本地按 README 手动运行，CI 只负责拦住「改了核心逻辑却破坏既有契约」的提交。
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  gates:
+    name: Node gates (161 checks)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      # 项目没有 npm 依赖，直接 node 运行；不需要 npm install / npm ci。
+
+      - name: Samples and import rules (30)
+        run: npm run check:samples
+
+      - name: API contract (6)
+        run: npm run check:api
+
+      - name: Strategy card channel (36)
+        run: npm run check:card
+
+      - name: Strategy engine (27)
+        run: npm run check:engine
+
+      - name: Strategy composition (16)
+        run: npm run check:composition
+
+      - name: Natural-language parser (30)
+        run: npm run check:nl
+
+      - name: Natural-language confirmation (16)
+        run: npm run check:nl-preview
