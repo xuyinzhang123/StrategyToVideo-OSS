@@ -52,9 +52,21 @@
             "entry": {
               "type": "object", "additionalProperties": false,
               "required": ["type"],
+              "description": "单个原子条件 {type:maCross|breakout}，或多条件与 {type:'all', items:[...]}（同日全部成立才入场）",
               "properties": {
-                "type": { "enum": ["maCross", "breakout"] },
-                "params": { "type": "object" }
+                "type": { "enum": ["maCross", "breakout", "all"] },
+                "params": { "type": "object" },
+                "items": {
+                  "type": "array", "minItems": 2, "maxItems": 3,
+                  "items": {
+                    "type": "object", "additionalProperties": false,
+                    "required": ["type"],
+                    "properties": {
+                      "type": { "enum": ["maCross", "breakout"] },
+                      "params": { "type": "object" }
+                    }
+                  }
+                }
               }
             },
             "exits": {
@@ -63,7 +75,7 @@
                 "type": "object", "additionalProperties": false,
                 "required": ["type"],
                 "properties": {
-                  "type": { "enum": ["maCross", "fixedHolding", "returnThreshold"] },
+                  "type": { "enum": ["maCross", "fixedHolding", "returnThreshold", "trailingStop"] },
                   "params": { "type": "object" }
                 }
               }

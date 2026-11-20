@@ -338,35 +338,68 @@
       box.innerHTML = '';
       box.appendChild(els(
         '<div class="field"><label>入场条件</label>' +
-        '<select id="f-comp-entry">' +
+        '<select id="f-comp-entry" class="f-comp-entry">' +
         '<option value="maCross" selected>MA 均线金叉（5 / 20 日 SMA）</option>' +
         '<option value="breakout">区间突破（收盘价 &gt; 前 20 日最高价）</option>' +
         '</select>' +
         '<span class="field-hint">信号当日收盘确认，下一交易日开盘买入。</span></div>' +
-        '<div class="field field-wide"><label>退出条件（可多选，任一触发即卖出）</label>' +
+        '<div class="field"><label>入场条件 2（可选，需同时成立）</label>' +
+        '<select id="f-comp-entry2" class="f-comp-entry">' +
+        '<option value="">不加（只用上面一个条件）</option>' +
+        '<option value="breakout">区间突破（收盘价 &gt; 前 20 日最高价）</option>' +
+        '<option value="maCross">MA 均线金叉（5 / 20 日 SMA）</option>' +
+        '</select>' +
+        '<span class="field-hint">选了就是「与」关系：两个条件必须同一天成立才买入。'
+        + '这会明显减少交易次数，也可能一次都不触发——那不是报错，是条件太严。</span></div>' +
+        '<div class="field field-wide"><label>退出条件（可多选 1~3 个，任一触发即卖出）</label>' +
         '<label class="chk"><input type="checkbox" class="f-comp-exit" value="fixedHolding" checked /> 固定持有 5 个交易日</label>' +
-        '<label class="chk"><input type="checkbox" class="f-comp-exit" value="returnThreshold" /> 止盈 10% / 止损 5%</label>' +
+        '<label class="chk"><input type="checkbox" class="f-comp-exit" value="returnThreshold" /> 止盈 10% / 止损 5%（以买入价为基准）</label>' +
         '<label class="chk"><input type="checkbox" class="f-comp-exit" value="maCross" /> MA 死叉（5 / 20 日）</label>' +
+        '<label class="chk"><input type="checkbox" class="f-comp-exit" value="trailingStop" /> 移动止损（以持仓最高收盘为基准）</label>' +
+        '<div><input id="f-comp-trail" class="f-comp-trail" type="number" min="1" max="50" step="0.5" value="8" />'
+        + ' % 回撤触发（勾选上面一项后生效）</div>' +
         '<span class="field-hint">多个条件同时触发只成交一次，视频会列出全部触发原因；'
         + '卖出同样在信号次日开盘成交。</span></div>' +
         '<div class="field field-wide"><label>最终策略规则</label>' +
         '<div id="f-comp-summary" class="result"></div></div>'
       ));
+      var entryName = function (v) {
+        return v === 'breakout' ? '突破前20日高点' : 'MA5/20 金叉';
+      };
+      var exitNames = {
+        fixedHolding: '固定持有5日', returnThreshold: '止盈10%/止损5%',
+        maCross: 'MA死叉', trailingStop: '移动止损'
+      };
       var updateSummary = function () {
         var sum = findEl('f-comp-summary');
         if (!sum) return;
         var e = findEl('f-comp-entry');
+        var e2 = findEl('f-comp-entry2');
+        var trail = findEl('f-comp-trail');
+        var entryText = entryName(e ? e.value : 'maCross');
+        if (e2 && e2.value) {
+          entryText = (e2.value === (e && e.value))
+            ? '两个入场条件相同（不合法）'
+            : entryText + ' 且 ' + entryName(e2.value);
+        }
         var picked = [];
         Array.prototype.forEach.call(document.querySelectorAll('.f-comp-exit'), function (c) {
-          if (c.checked) picked.push(c.value);
+          if (!c.checked) return;
+          picked.push(c.value === 'trailingStop'
+            ? '移动止损' + (trail && trail.value ? ' ' + trail.value + '%' : '')
+            : exitNames[c.value]);
         });
-        sum.textContent = '入场：' + (e && e.value === 'breakout' ? '前20日高点突破' : 'MA5/20 金叉')
+        sum.textContent = '入场：' + entryText
           + '  →  退出（OR）：' + (picked.length ? picked.join(' / ') : '未选择（不合法）');
       };
-      Array.prototype.forEach.call(document.querySelectorAll('.f-comp-entry, .f-comp-exit'), function (node) {
-        node.addEventListener('change', updateSummary);
-        node.addEventListener('change', function () { invalidateNl('你改动了模板里的入场/退出条件'); });
-      });
+      Array.prototype.forEach.call(
+        document.querySelectorAll('.f-comp-entry, .f-comp-exit, .f-comp-trail'),
+        function (node) {
+          node.addEventListener('change', updateSummary);
+          node.addEventListener('input', updateSummary);
+          node.addEventListener('change', function () { invalidateNl('你改动了模板里的入场/退出条件'); });
+        }
+      );
       updateSummary();
     } else if (tpl === 'close_buy_open_sell') {
       box.innerHTML = '<div class="field"><label>MACD 参数</label>'
@@ -529,21 +562,31 @@
 
     if (tid === 'composition') {
       var c = p.composition;
-      if (c.entry.type === 'maCross') {
-        fields.push(nlField('快线周期（日）', 'fast', c.entry.params.fast, '整数 ≥ 2，且必须小于慢线'));
-        fields.push(nlField('慢线周期（日）', 'slow', c.entry.params.slow, '整数 ≥ 3'));
-      } else {
-        fields.push(nlField('突破回看天数', 'lookback', c.entry.params.lookback, '整数 ≥ 2，窗口不含当日'));
+      var atoms = c.entry.type === 'all' ? c.entry.items : [c.entry];
+      var ma = null, bo = null;
+      atoms.forEach(function (a) {
+        if (a.type === 'maCross') ma = a;
+        if (a.type === 'breakout') bo = a;
+      });
+      if (ma) {
+        fields.push(nlField('快线周期（日）', 'fast', ma.params.fast, '整数 ≥ 2，且必须小于慢线'));
+        fields.push(nlField('慢线周期（日）', 'slow', ma.params.slow, '整数 ≥ 3'));
       }
-      var hold = null, rt = null;
+      if (bo) fields.push(nlField('突破回看天数', 'lookback', bo.params.lookback, '整数 ≥ 2，窗口不含当日'));
+      var hold = null, rt = null, trail = null;
       (c.exits || []).forEach(function (e) {
         if (e.type === 'fixedHolding') hold = e;
         if (e.type === 'returnThreshold') rt = e;
+        if (e.type === 'trailingStop') trail = e;
       });
       if (hold) fields.push(nlField('固定持有天数', 'days', hold.params.days, '整数 ≥ 1'));
       if (rt) {
         fields.push(nlField('止盈（%）', 'takeProfit', pctOf(rt.params.takeProfit), '留空 = 不设止盈', '0.1'));
         fields.push(nlField('止损（%）', 'stopLoss', pctOf(rt.params.stopLoss), '留空 = 不设止损', '0.1'));
+      }
+      if (trail) {
+        fields.push(nlField('移动止损回撤（%）', 'trailing', pctOf(trail.params.drawdown),
+          '从持仓最高收盘回撤该比例后卖出，需在 0 ~ 100 之间（不含两端）', '0.1'));
       }
     } else if (tid === 'close_buy_open_sell') {
       fields.push(nlField('开盘跳空阈值（%）', 'holdIfGte', pctOf(p.holdIfGte), '留空 = 不开跳空过滤', '0.1'));
@@ -583,7 +626,8 @@
           }
           var num = Number(raw);
           if (!isFinite(num)) { bad = true; return; }
-          ov[k] = (k === 'takeProfit' || k === 'stopLoss' || k === 'holdIfGte') ? num / 100 : num;
+          ov[k] = (k === 'takeProfit' || k === 'stopLoss' || k === 'trailing' || k === 'holdIfGte')
+            ? num / 100 : num;
         });
         if (bad) { nlUpdateApplyState(); return; }
         invalidateNl('你修改了参数');
@@ -984,20 +1028,40 @@
         params = nlParams;
       } else if (tpl === 'composition') {
         var entryType = findEl('f-comp-entry').value;
+        var entry2El = findEl('f-comp-entry2');
+        var entry2 = entry2El ? entry2El.value : '';
+        if (entry2 && entry2 === entryType) {
+          throw new Error('两个入场条件不能相同：请换一个条件，或把「入场条件 2」设为不加');
+        }
         var exitsPicked = [];
         Array.prototype.forEach.call(document.querySelectorAll('.f-comp-exit'), function (c) {
           if (c.checked) exitsPicked.push(c.value);
         });
         if (!exitsPicked.length) throw new Error('请至少选择一个退出条件');
-        var entryParams = entryType === 'breakout' ? { lookback: 20 } : { fast: 5, slow: 20, maType: 'SMA' };
+        if (exitsPicked.length > 3) throw new Error('退出条件最多选 3 个');
+        var atomOf = function (t) {
+          return t === 'breakout'
+            ? { type: 'breakout', params: { lookback: 20 } }
+            : { type: 'maCross', params: { fast: 5, slow: 20, maType: 'SMA' } };
+        };
+        var entrySpec = entry2
+          ? { type: 'all', items: [atomOf(entryType), atomOf(entry2)] }
+          : atomOf(entryType);
+        var trailEl = findEl('f-comp-trail');
+        var trailPct = trailEl ? Number(trailEl.value) : 8;
+        if (exitsPicked.indexOf('trailingStop') >= 0 &&
+          (!isFinite(trailPct) || trailPct <= 0 || trailPct >= 100)) {
+          throw new Error('移动止损回撤需在 0 ~ 100% 之间（不含两端），例如 8 表示从最高收盘回撤 8%');
+        }
         var exitParams = {
           fixedHolding: { days: 5 },
           returnThreshold: { takeProfit: 0.1, stopLoss: 0.05 },
-          maCross: { fast: 5, slow: 20, maType: 'SMA' }
+          maCross: { fast: 5, slow: 20, maType: 'SMA' },
+          trailingStop: { drawdown: trailPct / 100 }
         };
         params.composition = {
           schema: 'stv.composition/0.1',
-          entry: { type: entryType, params: entryParams },
+          entry: entrySpec,
           exits: exitsPicked.map(function (t) { return { type: t, params: exitParams[t] }; })
         };
       }
@@ -1159,6 +1223,16 @@
             + ' · 收益 ' + (Number(r0.totalReturn || 0) * 100).toFixed(2) + '%'
             + ' · 最大回撤 ' + (Number(r0.maxDD || 0) * 100).toFixed(2) + '%'
             + ' · ' + r0.trades + ' 笔交易</div>';
+          // 0 笔不是失败：说明这次区间内没有任何一次入场成立，期末资产等于初始资金。
+          // 用中性提示（不是红色报错样式），否则用户会当成程序出错。
+          if (Number(r0.trades) === 0) {
+            h0 += '<p class="warn-box"><b>本区间内没有任何一笔交易成立</b>：'
+              + '这不是运行失败，期末资产等于初始资金（¥ '
+              + Number(r0.final).toLocaleString('en-US', { maximumFractionDigits: 2 })
+              + '），资金没有被交易消耗。'
+              + '通常是因为入场条件太严——多条件「与」尤其容易一次都不触发；'
+              + '可以放宽参数，或去掉一个入场条件后重新创建任务。</p>';
+          }
         }
         if (r0.holdFinal != null) {
           h0 += '<div><b>同期长期持有</b>：¥ ' + Number(r0.holdFinal).toLocaleString('en-US', { maximumFractionDigits: 2 }) + '</div>';

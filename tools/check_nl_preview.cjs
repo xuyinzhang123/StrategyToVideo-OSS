@@ -1,9 +1,10 @@
 /*
  * V0.4 阶段 B：网页确认层（/api/nl/preview 背后的服务层）验收
  *
- * 十二项：无改参时与解析层一致、改参生效且规则串同步、倒置参数被引擎挡下、
+ * 十六项：无改参时与解析层一致、改参生效且规则串同步、倒置参数被引擎挡下、
  *         无目标条件改参被拒、补止损后规则串同步、MACD 锁定、非白名单字段、
- *         类型校验、超长文本、不可执行时 params 恒为 null、可执行产物能过 buildCard、确定性。
+ *         类型校验、超长文本、不可执行时 params 恒为 null、可执行产物能过 buildCard、确定性；
+ *         V0.5 新增：多条件与下改均线参数、移动止损回撤可改、混合策略能组装成卡。
  *
  * 运行：node tools/check_nl_preview.cjs
  */
@@ -124,6 +125,42 @@ check('13 同一输入两次调用结果逐字节一致', () => {
   const a = JSON.stringify(previewNl({ text: TEXT, overrides: { fast: 10 } }));
   const b = JSON.stringify(previewNl({ text: TEXT, overrides: { fast: 10 } }));
   assert.equal(a, b);
+});
+
+const AND_TEXT = '5日均线上穿20日均线 且 突破前5日最高价买入，从最高点回撤8%卖出';
+
+check('14 多条件与策略：改均线参数命中 items 里的 maCross，突破参数不受影响', () => {
+  const p = previewNl({ text: AND_TEXT, overrides: { fast: 10 } });
+  assert.equal(p.ok, true, JSON.stringify(codes(p)));
+  const items = p.params.composition.entry.items;
+  assert.equal(items.find((i) => i.type === 'maCross').params.fast, 10);
+  assert.equal(items.find((i) => i.type === 'breakout').params.lookback, 5);
+  assert.ok(p.ruleText.indexOf('MA10') >= 0, p.ruleText);
+  assert.ok(p.ruleText.indexOf('前 5 个交易日') >= 0, p.ruleText);
+});
+
+check('15 移动止损回撤可改；没有移动止损时改它被拒', () => {
+  const a = previewNl({ text: AND_TEXT, overrides: { trailing: 0.05 } });
+  assert.equal(a.ok, true, JSON.stringify(codes(a)));
+  assert.equal(a.params.composition.exits.find((e) => e.type === 'trailingStop').params.drawdown, 0.05);
+  assert.ok(a.ruleText.indexOf('回撤 5%') >= 0, a.ruleText);
+
+  const b = previewNl({ text: TEXT, overrides: { trailing: 0.05 } });
+  assert.equal(b.ok, false);
+  assert.ok(codes(b).includes('E_OVERRIDE_NO_TARGET'), codes(b).join(','));
+});
+
+check('16 多条件与 + 移动止损的确认参数能组装成合法策略卡', () => {
+  const p = previewNl({ text: AND_TEXT, overrides: { fast: 10, trailing: 0.05 } });
+  assert.equal(p.ok, true, JSON.stringify(codes(p)));
+  const r = buildCard({
+    templateId: p.cardRequest.templateId, symbol: '600000',
+    startDate: '2024-02-01', endDate: '2024-12-30', initialCapital: 100000,
+    params: p.cardRequest.params,
+  });
+  assert.equal(r.ok, true, r.message);
+  assert.equal(r.value.card.params.composition.entry.type, 'all');
+  assert.equal(r.value.card.params.composition.exits.find((e) => e.type === 'trailingStop').params.drawdown, 0.05);
 });
 
 console.log(`\n自然语言确认层验收：${pass}/${pass + fail} 通过`);

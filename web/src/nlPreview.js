@@ -16,7 +16,7 @@ const { buildConditions } = require('../../engine_next/strategy_conditions.cjs')
 const MAX_TEXT_CHARS = 300;
 
 // 允许用户在确认页手改的字段（只限数值旋钮，不含条件增删）
-const OVERRIDE_KEYS = ['fast', 'slow', 'lookback', 'days', 'takeProfit', 'stopLoss', 'holdIfGte'];
+const OVERRIDE_KEYS = ['fast', 'slow', 'lookback', 'days', 'takeProfit', 'stopLoss', 'trailing', 'holdIfGte'];
 const INTEGER_KEYS = new Set(['fast', 'slow', 'lookback', 'days']);
 
 function failIssue(code, message) {
@@ -33,6 +33,7 @@ function filterDefaults(list, overrides) {
     if (overrides.lookback !== undefined && String(d.field).startsWith('entry.params')) return false;
     if (overrides.takeProfit !== undefined && /takeProfit/.test(String(d.field))) return false;
     if (overrides.stopLoss !== undefined && /stopLoss/.test(String(d.field))) return false;
+    if (overrides.trailing !== undefined && /trailing/i.test(String(d.field))) return false;
     if (overrides.holdIfGte !== undefined && /holdIfGte/.test(String(d.field))) return false;
     if (overrides.days !== undefined && /fixedHolding|days/.test(String(d.field))) return false;
     return true;
@@ -47,21 +48,30 @@ function applyOverrides(draft, overrides, issues) {
   if (tid === 'composition') {
     const comp = req.composition;
     const findExit = (t) => comp.exits.find((e) => e.type === t);
+    // 多条件与时，均线/突破参数在 items 里，不在 entry.params 上
+    const atoms = comp.entry.type === 'all' ? comp.entry.items : [comp.entry];
+    const maAtom = atoms.find((a) => a.type === 'maCross');
+    const boAtom = atoms.find((a) => a.type === 'breakout');
 
     if (overrides.fast !== undefined || overrides.slow !== undefined) {
-      if (comp.entry.type !== 'maCross') {
-        issues.push(failIssue('E_OVERRIDE_NO_TARGET', '当前入场条件不是均线金叉，没有 fast/slow 可改。'));
+      if (!maAtom) {
+        issues.push(failIssue('E_OVERRIDE_NO_TARGET', '当前入场条件里没有均线金叉，没有 fast/slow 可改。'));
       } else {
-        if (overrides.fast !== undefined) comp.entry.params.fast = overrides.fast;
-        if (overrides.slow !== undefined) comp.entry.params.slow = overrides.slow;
+        if (overrides.fast !== undefined) maAtom.params.fast = overrides.fast;
+        if (overrides.slow !== undefined) maAtom.params.slow = overrides.slow;
       }
     }
     if (overrides.lookback !== undefined) {
-      if (comp.entry.type !== 'breakout') {
-        issues.push(failIssue('E_OVERRIDE_NO_TARGET', '当前入场条件不是区间突破，没有 lookback 可改。'));
+      if (!boAtom) {
+        issues.push(failIssue('E_OVERRIDE_NO_TARGET', '当前入场条件里没有区间突破，没有 lookback 可改。'));
       } else {
-        comp.entry.params.lookback = overrides.lookback;
+        boAtom.params.lookback = overrides.lookback;
       }
+    }
+    if (overrides.trailing !== undefined) {
+      const e = findExit('trailingStop');
+      if (!e) issues.push(failIssue('E_OVERRIDE_NO_TARGET', '当前策略没有「移动止损」退出条件，请重新描述策略而不是在这里加条件。'));
+      else e.params.drawdown = overrides.trailing;
     }
     if (overrides.days !== undefined) {
       const e = findExit('fixedHolding');

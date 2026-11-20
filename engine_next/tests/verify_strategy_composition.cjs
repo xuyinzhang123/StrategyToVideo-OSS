@@ -1,9 +1,11 @@
 /*
- * 策略组合专属验收（V0.3 阶段一）
+ * 策略组合专属验收（V0.3 阶段一 + V0.5 表达式扩展）
  *
- * 十项：MA 交叉日期、突破排除当日、固定持有、止盈止损基准、
- *       同日多退出一次成交、买卖日期、资产恒等式、现金不透支、
- *       确定性、反向失败。
+ * 十六项：MA 交叉日期、突破排除当日、固定持有、止盈止损基准、
+ *         同日多退出一次成交、买卖日期、资产恒等式、现金不透支、
+ *         确定性、反向失败；
+ *         V0.5 新增：多条件与语义、与条件是收紧、移动止损触发与首次性、
+ *         峰值不含入场前数据、非法配置拒绝、与条件零入场行为。
  * 运行：node engine_next/tests/verify_strategy_composition.cjs
  */
 'use strict';
@@ -158,6 +160,107 @@ check('10 人为注入错误后引擎/验收能失败', () => {
   const bad2 = cardOf(bo(), [sl()]);
   bad2.params.composition.exits[0].params.stopLoss = null; // 止盈止损全关
   assert.throws(() => runStrategy(bad2, input), (e) => e instanceof StrategyError);
+});
+
+/* ---------------- V0.5 表达式扩展 ---------------- */
+
+const tr = (d = 0.08) => ({ type: 'trailingStop', params: { drawdown: d } });
+const allOf = (...items) => ({ type: 'all', items });
+const bo5 = () => ({ type: 'breakout', params: { lookback: 5 } });
+const barsLite = bars.map(b => ({ date: b.date, close: b.close, high: b.high }));
+const barsIdx = new Map(bars.map((b, i) => [b.date, i]));
+
+function entryDaysOf(comp) {
+  const c = buildConditions(barsLite, comp);
+  const out = [];
+  for (const [date, rec] of c.byDate) if (rec.entry) out.push(date);
+  return out;
+}
+
+check('11 多条件与：只在两条件同日成立时入场', () => {
+  const days = entryDaysOf({ entry: allOf(ma(), bo5()), exits: [hold()] });
+  const closes = bars.map(b => b.close);
+  const f = sma(closes, 5), s = sma(closes, 20);
+  const expect = [];
+  for (let i = 5; i < bars.length; i++) {
+    const golden = f[i - 1] !== null && s[i - 1] !== null && f[i - 1] <= s[i - 1] && f[i] > s[i];
+    let hi = -Infinity;
+    for (let k = i - 5; k < i; k++) hi = Math.max(hi, bars[k].high);
+    if (golden && bars[i].close > hi) expect.push(bars[i].date);
+  }
+  assert.ok(expect.length > 0, '样例数据应至少有一天同时满足两条件');
+  assert.deepEqual(days, expect);
+});
+
+check('12 多条件与是收紧：入场日为各单条件交集且严格更少', () => {
+  const allDays = entryDaysOf({ entry: allOf(ma(), bo5()), exits: [hold()] });
+  const maDays = new Set(entryDaysOf({ entry: ma(), exits: [hold()] }));
+  const boDays = new Set(entryDaysOf({ entry: bo5(), exits: [hold()] }));
+  assert.ok(allDays.length > 0, '与条件样本为空，本项无效');
+  for (const d of allDays) assert.ok(maDays.has(d) && boDays.has(d), `${d} 不属于两个单条件的交集`);
+  assert.ok(allDays.length < Math.min(maDays.size, boDays.size), '与条件应严格少于任一单条件');
+});
+
+check('13 移动止损按持仓期最高收盘回撤触发，且为首次触发', () => {
+  const r = runStrategy(cardOf(ma(), [tr(0.08)]), input);
+  const sells = r.trades.filter(t => t.side === 'SELL' && (t.signalReasons || []).includes('trailingStop_8pct'));
+  assert.ok(sells.length > 0, '样例数据应至少触发一次移动止损');
+  for (const s of sells) {
+    const sig = r.signals.filter(x => x.type === 'EXIT' && x.execDate === s.date).pop();
+    assert.ok(sig, `${s.date} 卖出缺少对应 EXIT 信号`);
+    const buy = r.trades.filter(t => t.side === 'BUY' && t.date < s.date).pop();
+    assert.ok(buy, `${s.date} 前无买入`);
+    const bi = barsIdx.get(buy.date), si = barsIdx.get(sig.date);
+    let peak = -Infinity, first = -1;
+    for (let k = bi; k <= si; k++) {
+      peak = Math.max(peak, bars[k].close);
+      if (first < 0 && k < si && bars[k].close <= peak * (1 - 0.08) + 1e-9) first = k;
+    }
+    assert.ok(bars[si].close <= peak * (1 - 0.08) + 1e-9,
+      `${sig.date} 收盘 ${bars[si].close} 未跌破持仓峰值 ${peak} 的 92%`);
+    assert.ok(first < 0, `持仓期内 ${first >= 0 ? bars[first].date : ''} 已满足条件，应更早触发`);
+  }
+});
+
+check('14 峰值不含入场前高点（不引入未来函数）', () => {
+  const r = runStrategy(cardOf(ma(), [tr(0.08)]), input);
+  const sigs = r.signals.filter(x => x.type === 'EXIT' && /trailingStop/.test(x.reason || ''));
+  assert.ok(sigs.length > 0, '本项需要至少一个移动止损信号');
+  const cfDates = new Set();
+  for (const sig of sigs) {
+    const buy = r.trades.filter(t => t.side === 'BUY' && t.date < sig.date).pop();
+    assert.ok(buy, `${sig.date} 前无买入`);
+    const bi = barsIdx.get(buy.date), si = barsIdx.get(sig.date);
+    let peakAll = -Infinity, peakIn = -Infinity;
+    for (let k = 0; k <= si; k++) {
+      peakAll = Math.max(peakAll, bars[k].close);
+      if (k >= bi) peakIn = Math.max(peakIn, bars[k].close);
+    }
+    for (let k = bi; k < si; k++) {
+      if (bars[k].close <= peakAll * (1 - 0.08) + 1e-9 && bars[k].close > peakIn * (1 - 0.08) + 1e-9)
+        cfDates.add(bars[k].date);
+    }
+  }
+  assert.ok(cfDates.size > 0, '样例应存在「用入场前高点会误触发」的日子，否则无法验证排除逻辑');
+  for (const d of cfDates) assert.ok(!sigs.some(x => x.date === d), `${d} 用了入场前高点`);
+});
+
+check('15 非法配置被拒绝（多条件与 / 移动止损）', () => {
+  assert.throws(() => buildConditions(barsLite, { entry: allOf(ma()), exits: [hold()] }));
+  assert.throws(() => buildConditions(barsLite, { entry: allOf(ma(), ma()), exits: [hold()] }));
+  assert.throws(() => buildConditions(barsLite, { entry: allOf(ma(), { type: 'rsi' }), exits: [hold()] }));
+  assert.throws(() => buildConditions(barsLite, { entry: ma(), exits: [tr(1.5)] }));
+  assert.throws(() => buildConditions(barsLite, { entry: ma(), exits: [tr(0)] }));
+  assert.throws(() => buildConditions(barsLite, { entry: ma(), exits: [{ type: 'rsi', params: {} }] }));
+});
+
+check('16 与条件可能零入场：不报错、不产生交易、不伪造信号', () => {
+  // MA5/20 金叉 与 lookback=20 突破在该样例上从不同日发生
+  const r = runStrategy(cardOf(allOf(ma(), bo()), [hold()]), input);
+  assert.equal(r.trades.length, 0, '本应无交易，却出现成交');
+  assert.equal(r.signals.length, 0, '本应无信号，却出现信号');
+  assert.ok(r.equity.length > 0, '零入场时仍应产出完整时间轴');
+  assert.equal(r.equity[r.equity.length - 1].asset, 100000, '零交易时期末资产应等于本金');
 });
 
 console.log(`\n策略组合验收：${pass}/${pass + fail} 通过`);

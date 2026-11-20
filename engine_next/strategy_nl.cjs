@@ -29,6 +29,7 @@ const DEFAULTS = {
   holdDays: 5,
   takeProfit: 0.10,
   stopLoss: 0.05,
+  trailing: 0.08,
 };
 
 // 非白名单指标/玩法：命中即拒绝，绝不做「最接近的猜测」
@@ -182,6 +183,19 @@ function matchStopLoss(t) {
   ]);
 }
 
+// 移动止损：必须明确说「移动/跟踪/从最高回撤」，否则仍按固定止损处理
+function matchTrailingStop(t) {
+  let m = firstMatch(t, [
+    /(?:移动止损|移动止盈|跟踪止损|跟踪止盈|回撤止盈)\s*(?:到|超过|达到|达|为|设为)?\s*(\d{1,3}(?:\.\d+)?)\s*%/,
+    /(?:从)?\s*(?:最高|峰值)\s*(?:点|价|收盘|收盘价)?\s*(?:回撤|回落)\s*(?:到|超过|达到|达|为)?\s*(\d{1,3}(?:\.\d+)?)\s*%/,
+    /(?:回撤|回落)\s*(\d{1,3}(?:\.\d+)?)\s*%\s*(?:止盈|卖出|清仓|平仓)/,
+  ]);
+  if (m) return { drawdown: toRate(m[1]), text: m[0], index: m.index };
+  m = firstMatch(t, [/(?:移动止损|跟踪止损|回撤止盈)/]);
+  if (m) return { drawdown: null, text: m[0], index: m.index };
+  return null;
+}
+
 function matchAuctionHold(t) {
   return firstMatch(t, [
     /(?:开盘)?\s*(?:涨幅|高开|上涨)\s*(?:达到|超过|大于|高于|>=?)?\s*(\d{1,3}(?:\.\d+)?)\s*%[^,。;]*?(?:继续持有|不卖|继续拿|持有|留着)/,
@@ -207,8 +221,10 @@ function describeDraft(draft) {
 
   if (tid === 'composition') {
     const c = draft.params.composition;
-    const ep = c.entry.params || {};
-    const entryText = ENTRY_LABEL[c.entry.type](ep);
+    const labelOf = (node) => ENTRY_LABEL[node.type](node.params || {});
+    const entryText = c.entry.type === 'all'
+      ? c.entry.items.map(labelOf).join(' 且 ')
+      : labelOf(c.entry);
     const exitTexts = c.exits.map((e) => {
       if (e.type === 'fixedHolding') return `持有满 ${e.params.days} 个交易日`;
       if (e.type === 'returnThreshold') {
@@ -216,6 +232,9 @@ function describeDraft(draft) {
         if (e.params.takeProfit != null) seg.push(`止盈 ${pct(e.params.takeProfit)}`);
         if (e.params.stopLoss != null) seg.push(`止损 ${pct(e.params.stopLoss).replace('+', '-')}`);
         return seg.join(' 或 ');
+      }
+      if (e.type === 'trailingStop') {
+        return `从持仓最高收盘回撤 ${pct(e.params.drawdown).replace('+', '')} 卖出`;
       }
       return '均线死叉';
     });
@@ -293,7 +312,7 @@ function parseStrategyText(text) {
   }
   if (unsupported.length) {
     issues.push(issue('error', 'E_NOT_SUPPORTED',
-      `当前只支持『均线金叉 / N 日突破 / 固定持有 / 止盈止损』四类条件；以下内容暂不支持：${unsupported.map((u) => u.term).join('、')}。`,
+      `当前只支持『均线金叉 / N 日突破 / 固定持有 / 止盈止损 / 移动止损』五类条件；以下内容暂不支持：${unsupported.map((u) => u.term).join('、')}。`,
       { unsupported: unsupported.map((u) => u.term) }));
     // 只报根因：已有非白名单成分时不再追加「没识别到入场」之类的派生报错，避免误导
     return finish();
@@ -319,10 +338,16 @@ function parseStrategyText(text) {
   const boEntry = matchBreakoutEntry(t);
   const death = matchDeathCross(t);
   const hold = matchHoldDays(t);
-  const tpM = matchTakeProfit(t);
-  const slM = matchStopLoss(t);
-  const tpKw = /止盈/.test(t);
-  const slKw = /止损/.test(t);
+  // 先识别移动止损，把它的文字从「固定止盈止损」的识别范围内挖掉，
+  // 否则「从最高点回撤 8%」会被同时当成固定止损，凭空多出一个退出条件。
+  const trailM = matchTrailingStop(t);
+  const tExit = trailM
+    ? (t.slice(0, trailM.index) + ' '.repeat(trailM.text.length) + t.slice(trailM.index + trailM.text.length))
+    : t;
+  const tpM = matchTakeProfit(tExit);
+  const slM = matchStopLoss(tExit);
+  const tpKw = /止盈/.test(tExit);
+  const slKw = /止损/.test(tExit);
   const auctionM = matchAuctionHold(t);
 
   const tailBuy = /(?:尾盘|收盘前|临近收盘|收盘价?)\s*(?:买入|买|建仓)/.test(t);
@@ -361,29 +386,46 @@ function parseStrategyText(text) {
   }
 
   /* ---- 入场冲突 ---- */
-  if (compEntries.length > 1) {
+  // 两个入场条件只在明确说「且 / 同时」时才按「同时成立」处理，
+  // 否则「金叉、突破」到底是与还是或并不清楚，不能替用户猜。
+  const hasConjunction = /(?:且|并且|而且|同时|一并|一起)/.test(t);
+  if (compEntries.length > 2) {
+    issues.push(issue('error', 'E_MULTI_ENTRY', '识别到 3 个以上入场条件，本版最多支持 2 个同时成立。'));
+    return finish();
+  } else if (compEntries.length === 2 && !hasConjunction) {
     issues.push(issue('error', 'E_MULTI_ENTRY',
-      '识别到多个入场条件（' + compEntries.map((e) => e.type).join(' / ') + '）。本版每个策略只能有一个入场条件，请保留一个。'));
-  } else if (compEntries.length === 1) {
-    const e = compEntries[0];
-    evidence.push({ slot: 'entry', type: e.type, text: e.m.text, start: e.m.index, end: e.m.index + e.m.text.length });
+      '识别到多个入场条件（' + compEntries.map((e) => e.type).join(' / ') + '），但没说清是「同时成立」还是「任一成立」。'
+      + '本版只支持同时成立：请写成「A 且 B」；若只想保留一个，请删掉另一个。'));
+    return finish();
+  } else if (compEntries.length >= 1) {
+    for (const e of compEntries) {
+      evidence.push({ slot: 'entry', type: e.type, text: e.m.text, start: e.m.index, end: e.m.index + e.m.text.length });
+    }
   }
 
   /* ---- 各路由的 params ---- */
   if (draft.route.templateId === 'composition') {
-    const entryRaw = compEntries[0];
-    if (!entryRaw) return finish(); // 已被 E_NO_ENTRY 处理
-    const m = entryRaw.m;
-    const entryParams = entryRaw.type === 'maCross'
-      ? { fast: m.fast, slow: m.slow }
-      : { lookback: m.lookback };
-    if (!m.explicit) {
-      defaults.push({
-        field: `entry.params.${entryRaw.type === 'maCross' ? 'fast/slow' : 'lookback'}`,
-        value: entryRaw.type === 'maCross' ? `${DEFAULTS.fast}/${DEFAULTS.slow}` : DEFAULTS.lookback,
-        why: '文本未给出具体周期，按组件默认值处理',
-      });
-    }
+    if (!compEntries.length) return finish(); // 已被 E_NO_ENTRY 处理
+    const atomOf = (raw) => {
+      const m = raw.m;
+      const params = raw.type === 'maCross' ? { fast: m.fast, slow: m.slow } : { lookback: m.lookback };
+      if (!m.explicit) {
+        defaults.push({
+          field: `entry.params.${raw.type === 'maCross' ? 'fast/slow' : 'lookback'}`,
+          value: raw.type === 'maCross' ? `${DEFAULTS.fast}/${DEFAULTS.slow}` : DEFAULTS.lookback,
+          why: '文本未给出具体周期，按组件默认值处理',
+        });
+      }
+      return { type: raw.type, params };
+    };
+    const entrySpec = compEntries.length > 1
+      ? { type: 'all', items: compEntries.map(atomOf) }
+      : atomOf(compEntries[0]);
+    // 均线出场与入场共用一组参数；多条件与时取其中的 maCross 子条件
+    const entryParams = entrySpec.type === 'maCross' ? entrySpec.params
+      : entrySpec.type === 'all'
+        ? ((entrySpec.items.find((it) => it.type === 'maCross') || { params: {} }).params)
+        : { lookback: entrySpec.params.lookback };
 
     // 退出条件：按出现位置排序，保证 reasons 顺序与原文一致
     const exits = [];
@@ -412,6 +454,17 @@ function parseStrategyText(text) {
         text: (tpM || slM || tpKw || slKw) ? (tpM && tpM[0]) || (slM && slM[0]) || '止盈止损' : '',
       });
     }
+    if (trailM) {
+      let dd = trailM.drawdown;
+      if (dd == null) {
+        dd = DEFAULTS.trailing;
+        defaults.push({
+          field: 'exits.trailingStop.drawdown', value: DEFAULTS.trailing,
+          why: '提到了移动止损但没给百分比，按 8% 处理',
+        });
+      }
+      exits.push({ type: 'trailingStop', params: { drawdown: dd }, index: trailM.index, text: trailM.text });
+    }
     if (death) {
       if (death.fast != null && (death.fast !== entryParams.fast || death.slow !== entryParams.slow)) {
         issues.push(issue('warning', 'W_MA_SHARED',
@@ -427,7 +480,7 @@ function parseStrategyText(text) {
 
     if (!exits.length) {
       issues.push(issue('error', 'E_NO_EXIT',
-        '只识别到入场条件，没有出场条件。本版不会替你默认一个出场（那会改变策略语义）；请补充「持有 N 个交易日」或「止盈 X% / 止损 Y%」或「均线死叉卖出」。'));
+        '只识别到入场条件，没有出场条件。本版不会替你默认一个出场（那会改变策略语义）；请补充「持有 N 个交易日」或「止盈 X% / 止损 Y%」或「移动止损 X%」或「均线死叉卖出」。'));
       return finish();
     }
     if (exits.length > 3) {
@@ -437,7 +490,7 @@ function parseStrategyText(text) {
 
     const composition = {
       schema: 'stv.composition/0.1',
-      entry: { type: entryRaw.type, params: entryParams },
+      entry: entrySpec,
       exits: exits.map((e) => ({ type: e.type, params: e.params })),
     };
 
