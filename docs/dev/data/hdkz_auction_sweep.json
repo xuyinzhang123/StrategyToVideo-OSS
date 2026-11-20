@@ -1,0 +1,182 @@
+{
+  "symbol": "002184",
+  "name": "海得控制",
+  "range": {
+    "start": "2021-11-19",
+    "end": "2026-11-19"
+  },
+  "fetch": {
+    "source": "eastmoney kline klt=101 fqt=0",
+    "fetchedAt": "2026-11-20",
+    "adjust": "none",
+    "unclosedExcluded": "2026-11-20",
+    "barsTotal": 1417
+  },
+  "initialCapital": 100000,
+  "lotSize": 100,
+  "dividendPolicy": "ignored",
+  "benchmark": "hold",
+  "sampleCard": "samples/strategy_cards/close_buy_open_sell_002184.json",
+  "rows": [
+    {
+      "threshold": null,
+      "label": "none",
+      "final": 117399.02,
+      "totalReturnPct": 17.4,
+      "cagrPct": 3.3,
+      "maxDDPct": 10.12,
+      "benchmarkFinal": 69742.99,
+      "trades": 110,
+      "holdDays": 0,
+      "gapsEvaluated": 0,
+      "holdDecisions": 0,
+      "maxGapPct": null,
+      "win": {
+        "pairs": 55,
+        "winRate": 32.7,
+        "avgTradePct": 0.32
+      },
+      "resultSha": "1f72d37de1ef4fcc2eac1f08096f1d09f41ad047e0cee878aca0dc26ac7d9cec"
+    },
+    {
+      "threshold": 0.001,
+      "label": "0.1%",
+      "final": 90504.25,
+      "totalReturnPct": -9.5,
+      "cagrPct": -2,
+      "maxDDPct": 17.55,
+      "benchmarkFinal": 69742.99,
+      "trades": 110,
+      "holdDays": 27,
+      "gapsEvaluated": 82,
+      "holdDecisions": 27,
+      "maxGapPct": 10.04,
+      "win": {
+        "pairs": 55,
+        "winRate": 16.4,
+        "avgTradePct": -0.14
+      },
+      "resultSha": "f22a178fd5a69d584f7a95ae29a7d623baf6b3ac64fd12e11c7eab53b536fd07"
+    },
+    {
+      "threshold": 0.002,
+      "label": "0.2%",
+      "final": 91090.17,
+      "totalReturnPct": -8.91,
+      "cagrPct": -1.87,
+      "maxDDPct": 17.59,
+      "benchmarkFinal": 69742.99,
+      "trades": 110,
+      "holdDays": 26,
+      "gapsEvaluated": 81,
+      "holdDecisions": 26,
+      "maxGapPct": 10.04,
+      "win": {
+        "pairs": 55,
+        "winRate": 16.4,
+        "avgTradePct": -0.13
+      },
+      "resultSha": "f985602f2decc95b809d14ddc726664b7799267dba2342899940ebb4cc32ed0f"
+    },
+    {
+      "threshold": 0.005,
+      "label": "0.5%",
+      "final": 91636.33,
+      "totalReturnPct": -8.36,
+      "cagrPct": -1.75,
+      "maxDDPct": 16.78,
+      "benchmarkFinal": 69742.99,
+      "trades": 110,
+      "holdDays": 13,
+      "gapsEvaluated": 68,
+      "holdDecisions": 13,
+      "maxGapPct": 10.04,
+      "win": {
+        "pairs": 55,
+        "winRate": 25.5,
+        "avgTradePct": -0.12
+      },
+      "resultSha": "36ca187928ab208013fa0f74964c443b2a4eaefedc14e2bd665fe9f1049cb2b4"
+    },
+    {
+      "threshold": 0.01,
+      "label": "1.0%",
+      "final": 85327.42,
+      "totalReturnPct": -14.67,
+      "cagrPct": -3.16,
+      "maxDDPct": 17.77,
+      "benchmarkFinal": 69742.99,
+      "trades": 110,
+      "holdDays": 9,
+      "gapsEvaluated": 64,
+      "holdDecisions": 9,
+      "maxGapPct": 10.04,
+      "win": {
+        "pairs": 55,
+        "winRate": 27.3,
+        "avgTradePct": -0.27
+      },
+      "resultSha": "defbe0010653d31ede061c95b3750af839844bbf2cda6ab816292c6b1dbe77fa"
+    },
+    {
+      "threshold": 0.02,
+      "label": "2.0%",
+      "final": 89882.34,
+      "totalReturnPct": -10.12,
+      "cagrPct": -2.14,
+      "maxDDPct": 16.96,
+      "benchmarkFinal": 69742.99,
+      "trades": 110,
+      "holdDays": 7,
+      "gapsEvaluated": 62,
+      "holdDecisions": 7,
+      "maxGapPct": 10.04,
+      "win": {
+        "pairs": 55,
+        "winRate": 29.1,
+        "avgTradePct": -0.18
+      },
+      "resultSha": "fde03219880d131606c482e8cfb2bb22c4f66943fbe1d18e502f0c3f82901287"
+    },
+    {
+      "threshold": 0.03,
+      "label": "3.0%",
+      "final": 88885.62,
+      "totalReturnPct": -11.11,
+      "cagrPct": -2.36,
+      "maxDDPct": 17.86,
+      "benchmarkFinal": 69742.99,
+      "trades": 110,
+      "holdDays": 6,
+      "gapsEvaluated": 61,
+      "holdDecisions": 6,
+      "maxGapPct": 10.04,
+      "win": {
+        "pairs": 55,
+        "winRate": 29.1,
+        "avgTradePct": -0.2
+      },
+      "resultSha": "a5e6a6c7ccec24dcb0e667d507b022769f84a3162c3bf8388a71546e8f640066"
+    },
+    {
+      "threshold": 0.05,
+      "label": "5.0%",
+      "final": 101778.01,
+      "totalReturnPct": 1.78,
+      "cagrPct": 0.36,
+      "maxDDPct": 12.67,
+      "benchmarkFinal": 69742.99,
+      "trades": 110,
+      "holdDays": 3,
+      "gapsEvaluated": 58,
+      "holdDecisions": 3,
+      "maxGapPct": 10.04,
+      "win": {
+        "pairs": 55,
+        "winRate": 32.7,
+        "avgTradePct": 0.05
+      },
+      "resultSha": "6f76c7d9f38fed31f63c86f2372b1ed4c8b7e7f2de7659761fb3f4f5f971c4c4"
+    }
+  ]
+}
