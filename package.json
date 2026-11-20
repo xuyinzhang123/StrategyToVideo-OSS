@@ -11,6 +11,7 @@
     "check:determinism": "node tools/check_determinism.cjs",
     "check:api": "node tools/check_api_contract.cjs",
     "check:card": "node tools/check_strategy_card_api.cjs",
+    "check:engine": "node engine_next/tests/verify_strategy_engine.cjs",
     "check:composition": "node engine_next/tests/verify_strategy_composition.cjs",
     "check:nl": "node engine_next/tests/verify_nl_parser.cjs",
     "check:nl-preview": "node tools/check_nl_preview.cjs",
